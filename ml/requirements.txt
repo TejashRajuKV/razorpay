@@ -1,0 +1,27 @@
+# AI Revenue Recovery Agent - ML Service Dependencies
+# Local ML implementation using scikit-learn (no external LLM APIs)
+
+# Core data processing
+pandas>=2.0.0
+numpy>=1.24.0
+scipy>=1.10.0
+
+# Machine Learning
+scikit-learn>=1.3.0
+joblib>=1.3.0
+
+# Optional: Enhanced models (if environment permits)
+# xgboost>=1.7.0
+# lightgbm>=3.3.0
+
+# Utilities
+python-dateutil>=2.8.0
+
+# API Server (for ML service)
+flask>=3.0.0
+flask-cors>=4.0.0
+gunicorn>=21.0.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
