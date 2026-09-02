@@ -82,8 +82,49 @@ cd frontend
 # Install dependencies
 npm install
 
-# Start development server
+# Copy environment config (already created)
+# cp .env.example .env
+
+# Start development server (runs on http://localhost:5173)
 npm run dev
+```
+
+---
+
+## Frontend-Backend Connection
+
+The frontend is now connected to the backend via a REST API service layer:
+
+- **API Base URL**: `http://localhost:3001/api/v1` (configurable via `VITE_API_URL` in `.env`)
+- **Health Check**: Automatically checks backend connectivity on app load
+- **Fallback Mode**: If backend is unavailable, frontend gracefully falls back to mock data
+- **API Service**: Located at `frontend/src/services/api.js`
+
+### How It Works
+
+1. **On App Load**: The frontend automatically pings the backend health endpoint
+2. **If Connected**: Fetches real data from backend APIs and syncs state
+3. **If Disconnected**: Falls back to local mock data seamlessly
+4. **User Actions**: Recovery actions, batch simulations, and scenario injections are sent to the backend when available
+
+### Running Both Servers
+
+Open two terminals:
+
+**Terminal 1 - Backend:**
+```bash
+cd backend
+npm install
+npm run dev
+# Server runs on http://localhost:3001
+```
+
+**Terminal 2 - Frontend:**
+```bash
+cd frontend
+npm install
+npm run dev
+# App runs on http://localhost:5173
 ```
 
 ---
