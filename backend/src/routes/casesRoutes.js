@@ -14,6 +14,9 @@ const mlService = require('../services/mlService');
 const customerProfileService = require('../services/customerProfileService');
 const timingService = require('../services/timingService');
 const incentiveService = require('../services/incentiveService');
+const explanationService = require('../services/explanationService');
+const channelService = require('../services/channelService');
+const messageService = require('../services/messageService');
 
 /**
  * Get customer-level recovery profile
@@ -50,7 +53,78 @@ router.get('/:id/decision-preview', async (req, res, next) => {
       probability: decision.probability,
       diagnosis: diagnosis.diagnosis
     });
-    res.json({ success: true, data: { diagnosis, decision, timing, incentive } });
+    let customerProfile = null;
+    try {
+      if (caseData.customer_id) {
+        customerProfile = await customerProfileService.getCustomerRecoveryProfile(caseData.customer_id);
+      }
+    } catch { /* advisory only */ }
+    const risk = { riskProbability: parseFloat(caseData.risk_probability) || 0 };
+    const explanation = explanationService.buildExplanation({ decision, diagnosis, customerProfile, timing, incentive, risk });
+    const channel = channelService.recommendChannel(caseData, decision, customerProfile || {});
+    const message = messageService.generateMessage({
+      customerName: caseData.customer_name || 'Customer',
+      amount: parseFloat(caseData.amount_at_risk) || 0,
+      channel: channel.channel,
+      action: decision.action,
+      failureReason: caseData.failure_reason,
+      language: req.query.language || 'hinglish'
+    });
+    res.json({ success: true, data: { diagnosis, decision, timing, incentive, customerProfile, risk, explanation, channel, message } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Recommended recovery channel for a case (simulated, never sends)
+ * GET /api/v1/cases/:id/recovery-channel
+ */
+router.get('/:id/recovery-channel', async (req, res, next) => {
+  try {
+    const caseData = await recoveryService.getRecoveryCase(req.params.id);
+    if (!caseData) {
+      return res.status(404).json({ success: false, error: 'Case not found' });
+    }
+    const diagnosis = await mlService.diagnose(caseData);
+    const recoveryProbs = await mlService.getRecoveryProbabilities(caseData, diagnosis);
+    const decision = await recoveryService.decideBestSafeAction(caseData, recoveryProbs, diagnosis);
+    let customerProfile = null;
+    try {
+      if (caseData.customer_id) {
+        customerProfile = await customerProfileService.getCustomerRecoveryProfile(caseData.customer_id);
+      }
+    } catch { /* advisory only */ }
+    const channel = channelService.recommendChannel(caseData, decision, customerProfile || {});
+    res.json({ success: true, data: { ...channel, action: decision.action } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Recovery message for a case in English or Hinglish (simulated, never sent)
+ * GET /api/v1/cases/:id/recovery-message?language=hinglish|en
+ */
+router.get('/:id/recovery-message', async (req, res, next) => {
+  try {
+    const caseData = await recoveryService.getRecoveryCase(req.params.id);
+    if (!caseData) {
+      return res.status(404).json({ success: false, error: 'Case not found' });
+    }
+    const diagnosis = await mlService.diagnose(caseData);
+    const recoveryProbs = await mlService.getRecoveryProbabilities(caseData, diagnosis);
+    const decision = await recoveryService.decideBestSafeAction(caseData, recoveryProbs, diagnosis);
+    const channel = channelService.recommendChannel(caseData, decision, {});
+    const message = messageService.generateMessage({
+      customerName: caseData.customer_name || 'Customer',
+      amount: parseFloat(caseData.amount_at_risk) || 0,
+      channel: channel.channel,
+      action: decision.action,
+      failureReason: caseData.failure_reason,
+      language: req.query.language || 'hinglish'
+    });
+    res.json({ success: true, data: message });
   } catch (error) {
     next(error);
   }

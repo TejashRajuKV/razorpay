@@ -1,10 +1,7 @@
-import React, { useRef } from 'react';
-import { ArrowRight, ArrowUp, Bot, ShieldCheck, Activity } from 'lucide-react';
+import React from 'react';
+import { ArrowRight, Bot, ShieldCheck, Activity } from 'lucide-react';
 
 export default function Footer({ onLaunchConsole }) {
-  const skyRef = useRef(null);
-  const scrollTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
-
   return (
     <footer className="ed-footer">
       <div className="ed-top">
@@ -20,7 +17,6 @@ export default function Footer({ onLaunchConsole }) {
 
       <div className="ed-scene">
         <video
-          ref={skyRef}
           className="ed-video"
           src="/make_it_is_like_moving_clouds.mp4"
           autoPlay
@@ -28,27 +24,6 @@ export default function Footer({ onLaunchConsole }) {
           muted
           playsInline
         />
-        <div className="ed-wash" aria-hidden="true" />
-        <svg className="ed-horizon" viewBox="0 0 1440 220" preserveAspectRatio="none" aria-hidden="true">
-          <path d="M0 110 L1440 110" stroke="#111110" strokeWidth="3" fill="none" />
-          <path d="M560 220 L680 110 L760 110 L880 220 Z" fill="#FFFEFA" stroke="#111110" strokeWidth="3" strokeLinejoin="round" />
-          <path d="M640 220 L700 110 M800 110 L860 220" stroke="#E4D3AC" strokeWidth="10" fill="none" />
-        </svg>
-
-        <button className="ed-seal" onClick={scrollTop} aria-label="Back to top">
-          <span className="ed-seal-ring">back to top • back to top •</span>
-          <ArrowUp size={20} />
-        </button>
-
-        <div className="ed-chat">
-          <span className="ed-chat-label">Chat with</span>
-          <h4 className="ed-chat-name font-serif-title">Recovery Agent</h4>
-          <div className="ed-chat-avatar"><Bot size={28} color="#111110" /></div>
-          <button className="ed-chat-btn" onClick={onLaunchConsole}>
-            <span>Let's Chat</span>
-            <ArrowRight size={13} />
-          </button>
-        </div>
       </div>
 
       <div className="ed-bar">
@@ -75,17 +50,7 @@ export default function Footer({ onLaunchConsole }) {
         .ed-cta { display: inline-flex; align-items: center; gap: 10px; background: #7ED6C0; color: #111110; border: 1.5px solid #111110; border-radius: 999px; padding: 12px 28px; font-weight: 700; font-size: 15px; cursor: pointer; box-shadow: 3px 3px 0px #111110; transition: all .15s ease; }
         .ed-cta:hover { transform: translate(-1px,-1px); box-shadow: 4px 4px 0px #111110; background: #5FC6AD; }
         .ed-scene { position: relative; width: 100vw; max-width: none; margin: 0 0 0 50%; transform: translateX(-50%); height: 460px; border-top: 1px solid #111110; border-bottom: 1px solid #111110; overflow: hidden; background: #F7EBD2; }
-        .ed-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 30%; }
-        .ed-wash { position: absolute; inset: 0; background: linear-gradient(180deg, #FFFEFA 0%, rgba(255,254,250,0) 28%, rgba(250,240,211,0.25) 55%, rgba(255,254,250,0.55) 100%), linear-gradient(90deg, rgba(249,232,221,0.5) 0%, rgba(249,232,221,0) 30%, rgba(249,232,221,0) 70%, rgba(249,232,221,0.5) 100%); pointer-events: none; }
-        .ed-horizon { position: absolute; left: 0; right: 0; bottom: -2px; width: 100%; height: 220px; }
-        .ed-seal { position: absolute; left: 28px; bottom: 28px; width: 84px; height: 84px; border-radius: 50%; background: #F6C945; border: 1.5px solid #111110; box-shadow: 3px 3px 0px #111110; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 3; }
-        .ed-seal-ring { position: absolute; inset: 4px; font-size: 8px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: #111110; animation: ed-spin 12s linear infinite; }
-        @keyframes ed-spin { to { transform: rotate(360deg); } }
-        .ed-chat { position: absolute; right: 24px; bottom: 24px; width: 210px; background: rgba(255,255,255,0.96); border: 1.5px solid #111110; border-radius: 16px; padding: 14px 14px 12px; text-align: center; z-index: 3; box-shadow: 4px 4px 0px #111110; }
-        .ed-chat-label { font-size: 12px; font-weight: 600; color: #4E4E48; }
-        .ed-chat-name { font-size: 30px; margin: 0 0 8px; color: #111110; }
-        .ed-chat-avatar { width: 100%; height: 96px; border-radius: 10px; background: #FAF0D3; border: 1px solid #E9E1CC; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; }
-        .ed-chat-btn { display: inline-flex; align-items: center; gap: 6px; background: #7ED6C0; border: 1.5px solid #111110; border-radius: 999px; padding: 8px 22px; font-weight: 800; font-size: 13px; cursor: pointer; color: #111110; }
+        .ed-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; }
         .ed-bar { background: #111110; color: #FFFEFA; }
         .ed-bar-inner { max-width: 1080px; margin: 0 auto; padding: 20px 24px 6px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
         .ed-brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }
@@ -94,7 +59,7 @@ export default function Footer({ onLaunchConsole }) {
         .ed-links button { background: none; border: none; color: inherit; font: inherit; cursor: pointer; }
         .ed-status { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: #7ED6C0; }
         .ed-copy { text-align: center; font-size: 11.5px; color: #8A877F; padding: 6px 16px 18px; }
-        @media (max-width: 860px) { .ed-scene { height: 380px; } .ed-chat { display: none; } .ed-seal { width: 64px; height: 64px; left: 16px; bottom: 16px; } }
+        @media (max-width: 860px) { .ed-scene { height: 380px; } }
       `}</style>
     </footer>
   );

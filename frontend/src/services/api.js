@@ -53,6 +53,9 @@ export const casesAPI = {
     return apiRequest(`/cases${params ? `?${params}` : ''}`);
   },
   getCaseById: (caseId) => apiRequest(`/cases/${caseId}`),
+  getDecisionPreview: (caseId) => apiRequest(`/cases/${caseId}/decision-preview`),
+  getRecoveryChannel: (caseId) => apiRequest(`/cases/${caseId}/recovery-channel`),
+  getRecoveryMessage: (caseId, language = 'hinglish') => apiRequest(`/cases/${caseId}/recovery-message?language=${language}`),
   updateCaseStatus: (caseId, status) => 
     apiRequest(`/cases/${caseId}/status`, {
       method: 'PUT',
@@ -100,6 +103,8 @@ export const recoveryAPI = {
 export const analyticsAPI = {
   getOverview: () => apiRequest('/analytics/overview'),
   getMetrics: () => apiRequest('/analytics/overview'),
+  getAdvanced: () => apiRequest('/analytics/advanced'),
+  getAlerts: () => apiRequest('/recovery/alerts'),
   getTrends: (timeRange = '7d') => {
     const periodMap = {
       '24h': 'hourly',

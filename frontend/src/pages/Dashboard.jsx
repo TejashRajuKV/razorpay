@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Bot, 
   TrendingUp, 
@@ -33,6 +33,43 @@ import {
   HelpCircle
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { casesAPI } from '../services/api';
+
+function ChannelMessageBox({ caseId }) {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [ch, msg] = await Promise.all([
+          casesAPI.getRecoveryChannel(caseId),
+          casesAPI.getRecoveryMessage(caseId, 'hinglish'),
+        ]);
+        if (!cancelled && ch?.success && msg?.success) setData({ channel: ch.data, message: msg.data });
+      } catch { /* mock/demo ids have no backend case — hide */ }
+    })();
+    return () => { cancelled = true; };
+  }, [caseId]);
+  if (!data) return null;
+  return (
+    <div className="decision-matrix-box">
+      <div className="section-sub-header">
+        <Send size={15} color="#8B5CF6" />
+        <span>Recommended Channel & Message (simulated, never sent)</span>
+      </div>
+      <div className="recommended-action-card">
+        <div className="rec-action-header">
+          <span className="rec-action-name">{data.channel.channel.replace(/_/g, ' ')}</span>
+          <span className="badge badge-emerald">{Math.round((data.channel.confidence || 0) * 100)}% confidence</span>
+        </div>
+        <div className="rec-action-sub">{data.channel.reason}</div>
+        <div className="rec-action-sub" style={{ marginTop: 8 }}>
+          [{data.message.language}] {data.message.message}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Dashboard({
   metrics,
@@ -486,6 +523,8 @@ export default function Dashboard({
                 </div>
               </div>
             </div>
+
+            <ChannelMessageBox caseId={activeCase.id} />
 
             {/* Safety Guardrails & Stopping Rules Check */}
             <div className="guardrails-box">

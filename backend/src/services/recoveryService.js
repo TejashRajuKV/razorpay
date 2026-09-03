@@ -188,27 +188,35 @@ async function decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnos
     priority_score: recoveryCase.priority_score ?? recoveryCase.priorityScore ?? confidence,
     priorityScore: recoveryCase.priorityScore ?? recoveryCase.priority_score ?? confidence
   };
-  let blockedTop = null;
+  const evaluations = [];
   for (const candidate of candidates) {
     const check = await checkStoppingRules(probe, candidate.action);
-    if (check.allowed) {
-      return {
-        ...candidate,
-        confidence: Math.round(confidence * 10000) / 10000,
-        reason: buildDecisionReason({
-          action: candidate.action,
-          probability: candidate.probability,
-          expectedRecovery: candidate.expectedRecovery,
-          amount,
-          diagnosis,
-          blockedTop,
-          candidateCount: candidates.length
-        }),
-        blocked: blockedTop,
-        candidates
-      };
-    }
-    if (!blockedTop) blockedTop = { action: candidate.action, reason: check.reason };
+    evaluations.push({ action: candidate.action, allowed: check.allowed, reason: check.allowed ? null : check.reason });
+  }
+  const blockedActions = evaluations.filter((e) => !e.allowed);
+  const humanEscalation = amount > CONFIG.HIGH_VALUE_THRESHOLD && confidence < CONFIG.LOW_CONFIDENCE_THRESHOLD;
+  const guardrails = { considered: evaluations, blockedActions, humanEscalation };
+  const blockedTop = blockedActions.length > 0 && evaluations[0] && !evaluations[0].allowed
+    ? { action: evaluations[0].action, reason: evaluations[0].reason }
+    : (blockedActions[0] || null);
+  const selected = candidates.find((c) => evaluations.find((e) => e.action === c.action && e.allowed));
+  if (selected) {
+    return {
+      ...selected,
+      confidence: Math.round(confidence * 10000) / 10000,
+      reason: buildDecisionReason({
+        action: selected.action,
+        probability: selected.probability,
+        expectedRecovery: selected.expectedRecovery,
+        amount,
+        diagnosis,
+        blockedTop,
+        candidateCount: candidates.length
+      }),
+      blocked: blockedTop,
+      candidates,
+      guardrails
+    };
   }
   const fallback = candidates[candidates.length - 1] || { action: 'stop', probability: 0, expectedRecovery: 0 };
   return {
@@ -225,6 +233,7 @@ async function decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnos
     }),
     blocked: blockedTop,
     candidates,
+    guardrails,
     allowed: false
   };
 }
@@ -559,6 +568,16 @@ async function runRecoveryWorkflow(caseId, mlService) {
       expectedRecovery: decision.expectedRecovery
     });
 
+    const explanationService = require('./explanationService');
+    const explanation = explanationService.buildExplanation({
+      decision,
+      diagnosis,
+      customerProfile,
+      timing,
+      incentive,
+      risk: { riskProbability: parseFloat(recoveryCase.risk_probability) || 0 }
+    });
+
     return {
       success: true,
       caseId,
@@ -568,6 +587,7 @@ async function runRecoveryWorkflow(caseId, mlService) {
       customerProfile,
       timing,
       incentive,
+      explanation,
       executionResult: result
     };
   } catch (error) {

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -12,8 +12,29 @@ import {
   Activity
 } from 'lucide-react';
 import { ACTION_CONVERSION_ANALYTICS, ROOT_CAUSE_BREAKDOWN } from '../data/mockData';
+import { analyticsAPI } from '../services/api';
 
 export default function AnalyticsPage({ metrics }) {
+  const [advanced, setAdvanced] = useState(null);
+  const [alerts, setAlerts] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [advRes, alertRes] = await Promise.all([
+          analyticsAPI.getAdvanced(),
+          analyticsAPI.getAlerts(),
+        ]);
+        if (!cancelled) {
+          if (advRes?.success) setAdvanced(advRes.data);
+          if (alertRes?.success) setAlerts(alertRes.data);
+        }
+      } catch { /* backend unavailable — mock sections below still render */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const formatINR = (val) => {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
@@ -75,6 +96,47 @@ export default function AnalyticsPage({ metrics }) {
       ) : (
         <div className="porcelain-card" style={{ padding: 16, fontSize: 13 }}>
           Model accuracy / F1 / ROC-AUC are hidden until a real Python train/test evaluation exposes them.
+        </div>
+      )}
+
+      {/* Backend-driven: revenue leakage alerts + advanced recovery analytics */}
+      {alerts && alerts.alerts && alerts.alerts.length > 0 && (
+        <div className="porcelain-card" style={{ padding: 20 }}>
+          <h3 className="card-title">Revenue Leakage Alerts</h3>
+          {alerts.alerts.map((a, idx) => (
+            <div key={idx} style={{ padding: '10px 0', borderTop: idx ? '1px solid #eee' : 'none', fontSize: 13 }}>
+              <strong>[{a.severity}] {a.title}</strong> — {a.description}
+              <div style={{ color: 'var(--text-secondary)' }}>
+                At risk: {formatINR(a.amountAtRisk)} · Cases: {a.affectedCases} · Cause: {a.mainCause}
+              </div>
+              <div>AI recommendation: {a.recommendedAction}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {advanced && (
+        <div className="ml-metrics-strip">
+          <div className="porcelain-card ml-stat-card">
+            <span className="ml-label">Net Recovered</span>
+            <div className="ml-val emerald">₹{Number(advanced.netRecovered || 0).toLocaleString('en-IN')}</div>
+            <span className="ml-note">Gross minus costs</span>
+          </div>
+          <div className="porcelain-card ml-stat-card">
+            <span className="ml-label">Recovery ROI</span>
+            <div className="ml-val blue">{advanced.roi ?? '—'}</div>
+            <span className="ml-note">Net / cost</span>
+          </div>
+          <div className="porcelain-card ml-stat-card">
+            <span className="ml-label">Blocked / Escalations</span>
+            <div className="ml-val orange">{advanced.blockedActions} / {advanced.humanEscalations}</div>
+            <span className="ml-note">Guardrail activity</span>
+          </div>
+          <div className="porcelain-card ml-stat-card">
+            <span className="ml-label">Best Action / Channel</span>
+            <div className="ml-val purple" style={{ fontSize: 18 }}>{advanced.bestAction || '—'} / {advanced.bestChannel || '—'}</div>
+            <span className="ml-note">By recovered revenue</span>
+          </div>
         </div>
       )}
 

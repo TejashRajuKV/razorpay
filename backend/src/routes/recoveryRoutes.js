@@ -11,6 +11,9 @@ const recoveryService = require('../services/recoveryService');
 const mlService = require('../services/mlService');
 const simulatorService = require('../services/simulatorService');
 const auditService = require('../services/auditService');
+const strategySimulatorService = require('../services/strategySimulatorService');
+const roiService = require('../services/roiService');
+const leakageService = require('../services/leakageService');
 
 /**
  * Detect revenue at risk and create recovery cases
@@ -301,6 +304,102 @@ router.get('/stats', async (req, res, next) => {
         byAction
       }
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Compare recovery strategies on the same batch of cases (simulated, no real payments)
+ * POST /api/v1/recovery/strategy-comparison
+ * Body: { strategies?: {A: [...], B: [...]}, caseIds?: string[], limit?: number, count?: number }
+ */
+router.post('/strategy-comparison', async (req, res, next) => {
+  try {
+    const { strategies, caseIds, limit = 20, count = 20 } = req.body;
+    const db = require('../config/database');
+    let cases = [];
+    if (caseIds && caseIds.length > 0) {
+      for (const caseId of caseIds) {
+        const caseData = await recoveryService.getRecoveryCase(caseId);
+        if (caseData) cases.push(caseData);
+      }
+    } else {
+      cases = await db.query(
+        `SELECT rc.*, p.failure_reason, p.payment_method
+         FROM recovery_cases rc JOIN payments p ON rc.payment_id = p.id
+         WHERE rc.status IN ('open', 'in_progress')
+         ORDER BY rc.priority_score DESC LIMIT ?`,
+        [limit]
+      );
+    }
+    if (cases.length === 0) {
+      const synthetic = simulatorService.generateSyntheticPayments(count);
+      cases = synthetic.payments
+        .filter((p) => p.status === 'failed')
+        .map((payment, index) => ({
+          id: `strategy_case_${index}`,
+          status: 'open',
+          amount_at_risk: payment.amount,
+          failure_reason: payment.failure_reason,
+          payment_method: payment.payment_method,
+          diagnosis: 'temporary_failure'
+        }));
+    }
+    const comparison = await strategySimulatorService.compareStrategies(
+      cases,
+      strategies || undefined
+    );
+    await auditService.logEvent({
+      entityType: 'case',
+      entityId: 'strategy_comparison',
+      eventType: 'strategy_comparison_completed',
+      eventData: { strategies: Object.keys(comparison.strategies), winner: comparison.winner, cases: comparison.casesEvaluated }
+    });
+    res.json({ success: true, data: comparison });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Recovery ROI from recorded outcomes (simulated action costs labeled as such)
+ * GET /api/v1/recovery/roi
+ */
+router.get('/roi', async (req, res, next) => {
+  try {
+    const db = require('../config/database');
+    const totals = await db.query(
+      `SELECT COALESCE(SUM(amount_at_risk), 0) AS at_risk,
+              COALESCE(SUM(recovered_amount), 0) AS recovered,
+              COUNT(*) AS cases FROM recovery_cases`
+    );
+    const actions = await db.query(
+      `SELECT action_type, COUNT(*) AS n FROM recovery_actions GROUP BY action_type`
+    );
+    const actionCounts = {};
+    for (const row of actions) actionCounts[row.action_type] = row.n;
+    const roi = roiService.calculateROI({
+      grossRecovered: parseFloat(totals[0].recovered) || 0,
+      amountAtRisk: parseFloat(totals[0].at_risk) || 0,
+      incentiveCost: 0,
+      actionCounts,
+      casesCount: totals[0].cases
+    });
+    res.json({ success: true, data: { ...roi, incentiveNote: 'Recorded incentive spend is not yet persisted; incentiveCost reflects passed spend only.' } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Revenue leakage alerts from actual payment/recovery data
+ * GET /api/v1/recovery/alerts
+ */
+router.get('/alerts', async (req, res, next) => {
+  try {
+    const result = await leakageService.getLeakageAlerts();
+    res.json({ success: true, data: result });
   } catch (error) {
     next(error);
   }

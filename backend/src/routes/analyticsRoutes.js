@@ -8,6 +8,20 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/database');
+const advancedAnalyticsService = require('../services/advancedAnalyticsService');
+
+/**
+ * Advanced recovery analytics (combined totals, ROI, breakdowns)
+ * GET /api/v1/analytics/advanced
+ */
+router.get('/advanced', async (req, res, next) => {
+  try {
+    const data = await advancedAnalyticsService.getAdvancedAnalytics();
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+});
 
 /**
  * Get analytics overview
