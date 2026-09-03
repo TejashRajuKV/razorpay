@@ -11,6 +11,50 @@ const router = express.Router();
 const recoveryService = require('../services/recoveryService');
 const auditService = require('../services/auditService');
 const mlService = require('../services/mlService');
+const customerProfileService = require('../services/customerProfileService');
+const timingService = require('../services/timingService');
+const incentiveService = require('../services/incentiveService');
+
+/**
+ * Get customer-level recovery profile
+ * GET /api/v1/cases/customer/:customerId/recovery-profile
+ */
+router.get('/customer/:customerId/recovery-profile', async (req, res, next) => {
+  try {
+    const profile = await customerProfileService.getCustomerRecoveryProfile(req.params.customerId);
+    res.json({ success: true, data: profile });
+  } catch (error) {
+    if (/not found/i.test(error.message)) {
+      return res.status(404).json({ success: false, error: error.message });
+    }
+    next(error);
+  }
+});
+
+/**
+ * Preview timing + incentive recommendation for a case (no execution)
+ * GET /api/v1/cases/:id/decision-preview
+ */
+router.get('/:id/decision-preview', async (req, res, next) => {
+  try {
+    const caseData = await recoveryService.getRecoveryCase(req.params.id);
+    if (!caseData) {
+      return res.status(404).json({ success: false, error: 'Case not found' });
+    }
+    const diagnosis = await mlService.diagnose(caseData);
+    const recoveryProbs = await mlService.getRecoveryProbabilities(caseData, diagnosis);
+    const decision = await recoveryService.decideBestSafeAction(caseData, recoveryProbs, diagnosis);
+    const timing = timingService.recommendTiming(caseData, diagnosis);
+    const incentive = incentiveService.recommendIncentive({
+      amount: parseFloat(caseData.amount_at_risk) || 0,
+      probability: decision.probability,
+      diagnosis: diagnosis.diagnosis
+    });
+    res.json({ success: true, data: { diagnosis, decision, timing, incentive } });
+  } catch (error) {
+    next(error);
+  }
+});
 
 /**
  * List all recovery cases with optional filtering

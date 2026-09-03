@@ -8,6 +8,10 @@ const { v4: uuidv4 } = require('uuid');
 const db = require('../config/database');
 const auditService = require('./auditService');
 const simulatorService = require('./simulatorService');
+const timingService = require('./timingService');
+const incentiveService = require('./incentiveService');
+const outcomeFeedbackService = require('./outcomeFeedbackService');
+const customerProfileService = require('./customerProfileService');
 
 // Configuration constants for safety bounds
 const CONFIG = {
@@ -168,13 +172,15 @@ async function decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnos
     escalate: 0.1,
     stop: 0.0
   };
-  const candidates = Object.entries(actionProbabilities)
+  const candidates = await Promise.all(Object.entries(actionProbabilities)
     .filter(([action]) => action !== '_source')
-    .map(([action, p]) => {
-      const probability = parseFloat(p) || 0;
-      return { action, probability, expectedRecovery: Math.round(probability * amount * 100) / 100 };
-    })
-    .sort((a, b) => b.expectedRecovery - a.expectedRecovery || b.probability - a.probability);
+    .map(async ([action, p]) => {
+      const baseProbability = parseFloat(p) || 0;
+      const adjustment = await outcomeFeedbackService.getHistoricalAdjustment(recoveryCase.customer_id, action);
+      const probability = Math.max(0, Math.min(0.95, Math.round((baseProbability + adjustment) * 10000) / 10000));
+      return { action, probability, baseProbability, historicalAdjustment: adjustment, expectedRecovery: Math.round(probability * amount * 100) / 100 };
+    }));
+  candidates.sort((a, b) => b.expectedRecovery - a.expectedRecovery || b.probability - a.probability);
   const probe = {
     ...recoveryCase,
     amount_at_risk: amount,
@@ -229,7 +235,7 @@ async function decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnos
  * @param {String} actionType - Type of action to execute
  * @returns {Promise<Object>} Action execution result
  */
-async function executeRecoveryAction(caseId, actionType) {
+async function executeRecoveryAction(caseId, actionType, context = {}) {
   // Fetch case details
   const caseQuery = `
     SELECT rc.*, p.payment_method, p.failure_reason, c.email, c.phone
@@ -309,6 +315,19 @@ async function executeRecoveryAction(caseId, actionType) {
     if (result.success) {
       await updateCaseStatus(caseId, 'resolved', result.recoveredAmount);
     }
+
+    try {
+      await outcomeFeedbackService.recordOutcome({
+        caseId,
+        customerId: recoveryCase.customer_id,
+        action: actionType,
+        predictedProbability: parseFloat(context.predictedProbability ?? 0) || 0,
+        amountAtRisk: parseFloat(recoveryCase.amount_at_risk) || 0,
+        expectedRecovery: parseFloat(context.expectedRecovery ?? 0) || 0,
+        actualRecovered: result.recoveredAmount || 0,
+        success: result.success
+      });
+    } catch { /* feedback must never break execution */ }
     
     // Audit log
     await auditService.logEvent({
@@ -520,8 +539,25 @@ async function runRecoveryWorkflow(caseId, mlService) {
     const decision = await decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnosis);
     await db.query('UPDATE recovery_cases SET recommended_action = ? WHERE id = ?', [decision.action, caseId]);
 
-    // Step 4: Execute action
-    const result = await executeRecoveryAction(caseId, decision.action);
+    let customerProfile = null;
+    try {
+      if (recoveryCase.customer_id) {
+        customerProfile = await customerProfileService.getCustomerRecoveryProfile(recoveryCase.customer_id);
+      }
+    } catch { /* profile is advisory only */ }
+
+    const timing = timingService.recommendTiming(recoveryCase, diagnosis);
+    const incentive = incentiveService.recommendIncentive({
+      amount: parseFloat(recoveryCase.amount_at_risk) || 0,
+      probability: decision.probability,
+      diagnosis: diagnosis.diagnosis
+    });
+
+    // Step 4: Execute action (guardrails re-checked inside; prediction context feeds outcome learning)
+    const result = await executeRecoveryAction(caseId, decision.action, {
+      predictedProbability: decision.probability,
+      expectedRecovery: decision.expectedRecovery
+    });
 
     return {
       success: true,
@@ -529,6 +565,9 @@ async function runRecoveryWorkflow(caseId, mlService) {
       diagnosis,
       recommendedAction: decision.action,
       decision,
+      customerProfile,
+      timing,
+      incentive,
       executionResult: result
     };
   } catch (error) {
