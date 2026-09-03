@@ -18,6 +18,26 @@ BASE_RATES = {
 
 DIAGNOSES = ['temporary_failure', 'repeated_failure', 'data_issue', 'abandonment']
 SEGMENTS = ['standard', 'premium', 'new']
+FAILURE_REASONS = [
+    'insufficient_funds', 'card_expired', 'transaction_timeout',
+    'bank_error', 'declined_by_bank', 'invalid_upi_id',
+    'card_limit_exceeded', 'unknown',
+]
+PAYMENT_METHODS = [
+    'credit_card', 'debit_card', 'upi', 'net_banking', 'wallet', 'unknown',
+]
+METHOD_LIFT = {
+    'retry': {'credit_card': 1.05, 'debit_card': 1.0, 'upi': 1.1, 'net_banking': 0.95, 'wallet': 1.0},
+    'payment_link': {'credit_card': 1.0, 'debit_card': 1.0, 'upi': 1.1, 'net_banking': 1.05, 'wallet': 1.0},
+    'reminder': {'credit_card': 1.0, 'debit_card': 1.0, 'upi': 1.05, 'net_banking': 1.0, 'wallet': 0.95},
+    'retry_later': {'credit_card': 1.0, 'debit_card': 1.0, 'upi': 1.05, 'net_banking': 1.0, 'wallet': 1.0},
+}
+REASON_LIFT = {
+    'card_expired': {'retry': 0.4, 'payment_link': 1.2, 'reminder': 1.1},
+    'invalid_upi_id': {'retry': 0.5, 'payment_link': 1.2, 'reminder': 1.1},
+    'insufficient_funds': {'retry_later': 1.2, 'retry': 0.9},
+    'transaction_timeout': {'retry': 1.15, 'retry_later': 1.1},
+}
 
 
 def _encode(value, vocabulary):
@@ -35,6 +55,8 @@ def features_to_vector(case_features: dict, diagnosis: str):
         float(case_features.get('previous_recovery_attempts', 0)) / 5.0,
         float(case_features.get('amount_relative_to_average', 1.0)) / 3.0,
         _encode(case_features.get('customer_segment', 'standard'), SEGMENTS),
+        _encode(case_features.get('failure_reason', 'unknown'), FAILURE_REASONS),
+        _encode(case_features.get('payment_method', 'unknown'), PAYMENT_METHODS),
     ]
 
 
@@ -67,12 +89,16 @@ def _synthetic_dataset(n=3000, seed=11):
         attempts = float(rng.integers(0, 5))
         amount_rel = float(rng.uniform(0.2, 4.0))
         segment = str(rng.choice(SEGMENTS))
+        fr = str(rng.choice(FAILURE_REASONS))
+        pm = str(rng.choice(PAYMENT_METHODS))
         feats = {
             'customer_success_rate': success_rate,
             'customer_total_payments': total,
             'previous_recovery_attempts': attempts,
             'amount_relative_to_average': amount_rel,
             'customer_segment': segment,
+            'failure_reason': fr,
+            'payment_method': pm,
         }
         label = _best_action_for(diag, success_rate, segment, attempts, amount_rel)
         X.append(features_to_vector(feats, diag))
@@ -132,6 +158,14 @@ class RecoveryProbabilityModel:
         for action in ['retry', 'reminder', 'retry_later']:
             if base_rates[action] > 0:
                 base_rates[action] *= attempt_penalty
+        failure_reason = case_features.get('failure_reason', 'unknown')
+        for action, lift in REASON_LIFT.get(failure_reason, {}).items():
+            if action in base_rates and base_rates[action] > 0:
+                base_rates[action] *= lift
+        payment_method = case_features.get('payment_method', 'unknown')
+        for action, lifts in METHOD_LIFT.items():
+            if action in base_rates and base_rates[action] > 0 and payment_method in lifts:
+                base_rates[action] *= lifts[payment_method]
         probabilities = {k: round(min(0.95, v), 4) for k, v in base_rates.items()}
         recommended_action = 'stop'
         highest_prob = 0
@@ -156,7 +190,10 @@ class RecoveryProbabilityModel:
             try:
                 vec = np.array(features_to_vector(case_features, diagnosis)).reshape(1, -1)
                 proba = self.model.predict_proba(vec)[0]
-                probs = {a: round(float(proba[ACTIONS.index(a)]), 4) for a in ACTIONS}
+                classes = [int(c) for c in list(self.model.classes_)]
+                probs = {a: 0.0 for a in ACTIONS}
+                for i, cls in enumerate(classes):
+                    probs[ACTIONS[cls]] = round(float(proba[i]), 4)
                 # Blend model distribution with heuristic magnitudes for calibrated probabilities
                 blended = {}
                 for a in ACTIONS:
@@ -169,7 +206,7 @@ class RecoveryProbabilityModel:
                         blended[a] = round(m * 0.3, 4)
                 # Recommended = argmax of model distribution (fallback to heuristic if stop-heavy)
                 idx = int(np.argmax(proba))
-                recommended = ACTIONS[idx]
+                recommended = ACTIONS[classes[idx]]
                 if blended.get(recommended, 0) < 0.25:
                     recommended = heuristic['recommended_action']
                 return {

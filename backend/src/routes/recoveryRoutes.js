@@ -122,6 +122,7 @@ router.post('/run-batch', async (req, res, next) => {
       successful: 0,
       failed: 0,
       stopped: 0,
+      blocked: 0,
       totalRecovered: 0,
       totalAtRisk: 0,
       byActionType: {},
@@ -144,6 +145,8 @@ router.post('/run-batch', async (req, res, next) => {
         if (actionResult.success) {
           results.successful++;
           results.totalRecovered += actionResult.recoveredAmount || 0;
+        } else if (actionResult.blocked) {
+          results.blocked++;
         } else if (recommendedAction === 'stop') {
           results.stopped++;
         } else {
@@ -190,6 +193,7 @@ router.post('/run-batch', async (req, res, next) => {
         totalProcessed: results.totalProcessed,
         successful: results.successful,
         failed: results.failed,
+        blocked: results.blocked,
         totalRecovered: results.totalRecovered
       }
     });

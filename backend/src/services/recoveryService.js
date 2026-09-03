@@ -135,19 +135,31 @@ function calculatePriorityScore(amount, riskProbability, confidence) {
  * @param {Object} recoveryProbabilities - ML model recovery probabilities
  * @returns {Promise<String>} Recommended action type
  */
-async function decideRecoveryAction(recoveryCase, recoveryProbabilities) {
-  const { diagnosis, amountAtRisk, priorityScore } = recoveryCase;
-  
-  // Safety check: High-value + low-confidence requires human escalation
-  if (amountAtRisk > CONFIG.HIGH_VALUE_THRESHOLD && 
-      priorityScore < CONFIG.LOW_CONFIDENCE_THRESHOLD) {
-    return 'escalate';
-  }
-  
-  // Select action with highest recovery probability
-  let bestAction = 'stop';
-  let highestProbability = 0;
-  
+async function decideRecoveryAction(recoveryCase, recoveryProbabilities, diagnosisInfo) {
+  const decision = await decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnosisInfo);
+  const updateQuery = `
+    UPDATE recovery_cases
+    SET recommended_action = ?
+    WHERE id = ?
+  `;
+  await db.query(updateQuery, [decision.action, recoveryCase.id]);
+  return decision.action;
+}
+
+function buildDecisionReason({ action, probability, expectedRecovery, amount, diagnosis, blockedTop, candidateCount }) {
+  const signals = [];
+  if (diagnosis && diagnosis !== 'unknown') signals.push(`diagnosis is ${diagnosis}`);
+  if (blockedTop) signals.push(`${blockedTop.action} blocked (${blockedTop.reason})`);
+  signals.push('highest expected recovery among safe actions');
+  return `${action} selected (p=${probability}, expected Rs.${expectedRecovery} of Rs.${amount}) because ${signals.join('; ')}. Evaluated ${candidateCount} actions.`;
+}
+
+async function decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnosisInfo) {
+  const amount = parseFloat(recoveryCase.amount_at_risk ?? recoveryCase.amountAtRisk ?? 0) || 0;
+  const diagnosis = recoveryCase.diagnosis || diagnosisInfo?.diagnosis || 'unknown';
+  const confidence = parseFloat(
+    recoveryCase.priority_score ?? recoveryCase.priorityScore ?? diagnosisInfo?.confidence ?? 0
+  ) || 0;
   const actionProbabilities = recoveryProbabilities || {
     retry: 0.3,
     reminder: 0.2,
@@ -156,23 +168,59 @@ async function decideRecoveryAction(recoveryCase, recoveryProbabilities) {
     escalate: 0.1,
     stop: 0.0
   };
-  
-  for (const [action, probability] of Object.entries(actionProbabilities)) {
-    if (probability > highestProbability) {
-      highestProbability = probability;
-      bestAction = action;
+  const candidates = Object.entries(actionProbabilities)
+    .filter(([action]) => action !== '_source')
+    .map(([action, p]) => {
+      const probability = parseFloat(p) || 0;
+      return { action, probability, expectedRecovery: Math.round(probability * amount * 100) / 100 };
+    })
+    .sort((a, b) => b.expectedRecovery - a.expectedRecovery || b.probability - a.probability);
+  const probe = {
+    ...recoveryCase,
+    amount_at_risk: amount,
+    amountAtRisk: amount,
+    priority_score: recoveryCase.priority_score ?? recoveryCase.priorityScore ?? confidence,
+    priorityScore: recoveryCase.priorityScore ?? recoveryCase.priority_score ?? confidence
+  };
+  let blockedTop = null;
+  for (const candidate of candidates) {
+    const check = await checkStoppingRules(probe, candidate.action);
+    if (check.allowed) {
+      return {
+        ...candidate,
+        confidence: Math.round(confidence * 10000) / 10000,
+        reason: buildDecisionReason({
+          action: candidate.action,
+          probability: candidate.probability,
+          expectedRecovery: candidate.expectedRecovery,
+          amount,
+          diagnosis,
+          blockedTop,
+          candidateCount: candidates.length
+        }),
+        blocked: blockedTop,
+        candidates
+      };
     }
+    if (!blockedTop) blockedTop = { action: candidate.action, reason: check.reason };
   }
-  
-  // Update case with recommended action
-  const updateQuery = `
-    UPDATE recovery_cases 
-    SET recommended_action = ? 
-    WHERE id = ?
-  `;
-  await db.query(updateQuery, [bestAction, recoveryCase.id]);
-  
-  return bestAction;
+  const fallback = candidates[candidates.length - 1] || { action: 'stop', probability: 0, expectedRecovery: 0 };
+  return {
+    ...fallback,
+    confidence: Math.round(confidence * 10000) / 10000,
+    reason: buildDecisionReason({
+      action: fallback.action,
+      probability: fallback.probability,
+      expectedRecovery: fallback.expectedRecovery,
+      amount,
+      diagnosis,
+      blockedTop,
+      candidateCount: candidates.length
+    }),
+    blocked: blockedTop,
+    candidates,
+    allowed: false
+  };
 }
 
 /**
@@ -468,17 +516,19 @@ async function runRecoveryWorkflow(caseId, mlService) {
     // Step 2: Get recovery probabilities from ML service
     const recoveryProbabilities = await mlService.getRecoveryProbabilities(recoveryCase, diagnosis);
     
-    // Step 3: Decide best action
-    const recommendedAction = await decideRecoveryAction(recoveryCase, recoveryProbabilities);
-    
+    // Step 3: Decide best safe action (expected value + guardrails + explanation)
+    const decision = await decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnosis);
+    await db.query('UPDATE recovery_cases SET recommended_action = ? WHERE id = ?', [decision.action, caseId]);
+
     // Step 4: Execute action
-    const result = await executeRecoveryAction(caseId, recommendedAction);
-    
+    const result = await executeRecoveryAction(caseId, decision.action);
+
     return {
       success: true,
       caseId,
       diagnosis,
-      recommendedAction,
+      recommendedAction: decision.action,
+      decision,
       executionResult: result
     };
   } catch (error) {
@@ -492,6 +542,7 @@ module.exports = {
   createRecoveryCase,
   calculatePriorityScore,
   decideRecoveryAction,
+  decideBestSafeAction,
   executeRecoveryAction,
   getRecoveryCase,
   getRecoveryCases,
