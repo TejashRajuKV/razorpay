@@ -55,57 +55,51 @@ router.post('/seed-db', async (req, res, next) => {
     // Generate synthetic data
     const syntheticData = simulatorService.generateSyntheticPayments(paymentCount);
     const customers = syntheticData.customers.slice(0, customerCount);
-    
+
+    // Insert payments (only for existing customers)
+    const customerIds = new Set(customers.map(c => c.id));
+    const validPayments = syntheticData.payments.filter(p => customerIds.has(p.customer_id));
+
+    const customerQuery = `
+      INSERT OR REPLACE INTO customers
+      (id, name, email, phone, total_payments, successful_payments, failed_payments,
+       total_revenue, risk_score, customer_segment)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    const paymentQuery = `
+      INSERT INTO payments
+      (id, customer_id, amount, currency, status, payment_method, failure_reason, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
     // Use transaction for atomic insert
-    await db.transaction(async (client) => {
-      // Insert customers
-      const customerQuery = `
-        INSERT OR REPLACE INTO customers 
-        (id, name, email, phone, total_payments, successful_payments, failed_payments, 
-         total_revenue, risk_score, customer_segment)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `;
-      
-      for (const customer of customers) {
-        if (db.config.type === 'postgres') {
-          await client.query(customerQuery, [
-            customer.id, customer.name, customer.email, customer.phone,
-            customer.total_payments, customer.successful_payments, customer.failed_payments,
-            customer.total_revenue, customer.risk_score, customer.customer_segment
-          ]);
-        } else {
-          client.prepare(customerQuery).run(
-            customer.id, customer.name, customer.email, customer.phone,
-            customer.total_payments, customer.successful_payments, customer.failed_payments,
-            customer.total_revenue, customer.risk_score, customer.customer_segment
-          );
-        }
+    // NOTE: better-sqlite3 transaction functions must be synchronous —
+    // an async callback throws "Transaction function cannot return a promise"
+    // and the abandoned continuation crashes the server.
+    await db.transaction((client) => {
+      const insertCustomer = (c) => [c.id, c.name, c.email, c.phone,
+        c.total_payments, c.successful_payments, c.failed_payments,
+        c.total_revenue, c.risk_score, c.customer_segment];
+      const insertPayment = (p) => [p.id, p.customer_id, p.amount, p.currency,
+        p.status, p.payment_method, p.failure_reason, JSON.stringify(p.metadata)];
+
+      if (db.config.type === 'postgres') {
+        return (async () => {
+          for (const customer of customers) {
+            await client.query(customerQuery, insertCustomer(customer));
+          }
+          for (const payment of validPayments) {
+            await client.query(paymentQuery, insertPayment(payment));
+          }
+        })();
       }
-      
-      // Insert payments (only for existing customers)
-      const customerIds = new Set(customers.map(c => c.id));
-      const validPayments = syntheticData.payments.filter(p => customerIds.has(p.customer_id));
-      
-      const paymentQuery = `
-        INSERT INTO payments 
-        (id, customer_id, amount, currency, status, payment_method, failure_reason, metadata)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `;
-      
+
+      for (const customer of customers) {
+        client.prepare(customerQuery).run(...insertCustomer(customer));
+      }
+
       for (const payment of validPayments) {
-        if (db.config.type === 'postgres') {
-          await client.query(paymentQuery, [
-            payment.id, payment.customer_id, payment.amount, payment.currency,
-            payment.status, payment.payment_method, payment.failure_reason,
-            JSON.stringify(payment.metadata)
-          ]);
-        } else {
-          client.prepare(paymentQuery).run(
-            payment.id, payment.customer_id, payment.amount, payment.currency,
-            payment.status, payment.payment_method, payment.failure_reason,
-            JSON.stringify(payment.metadata)
-          );
-        }
+        client.prepare(paymentQuery).run(...insertPayment(payment));
       }
     });
     

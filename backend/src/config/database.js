@@ -87,7 +87,8 @@ async function query(sql, params = []) {
           .catch(error => reject(error));
       } else {
         const stmt = db.prepare(sql);
-        const result = stmt.all(...params);
+        // Writes (INSERT/UPDATE/DELETE) throw on .all() — use .run() for non-reading statements
+        const result = stmt.reader ? stmt.all(...params) : stmt.run(...params);
         resolve(result);
       }
     } catch (error) {
@@ -119,7 +120,9 @@ async function transaction(callback) {
       client.release();
     }
   } else {
-    return db.transaction(callback)();
+    // better-sqlite3 transaction functions must be synchronous and receive no
+    // arguments — pass the db instance through so callers can use client.prepare()
+    return db.transaction(() => callback(db))();
   }
 }
 

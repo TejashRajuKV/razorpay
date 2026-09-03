@@ -145,7 +145,7 @@ function extractRiskFeatures(paymentData) {
     payment_method: paymentData.payment_method || 'unknown',
     failure_reason: paymentData.failure_reason || 'unknown',
     customer_total_payments: paymentData.total_payments || 0,
-    customer_success_rate: paymentData.successful_payments / Math.max(paymentData.total_payments, 1),
+    customer_success_rate: (paymentData.successful_payments || 0) / Math.max(paymentData.total_payments || 0, 1),
     customer_risk_score: paymentData.customer_risk_score || 0.5,
     time_since_last_payment: getTimeSinceLastPayment(paymentData.last_payment_date),
     hour_of_day: new Date().getHours(),
@@ -162,8 +162,8 @@ function extractDiagnosisFeatures(caseData) {
     payment_method: caseData.payment_method || 'unknown',
     attempt_count: caseData.attempt_number || 1,
     customer_history_length: caseData.total_payments || 0,
-    customer_success_rate: caseData.successful_payments / Math.max(caseData.total_payments, 1),
-    amount_relative_to_average: caseData.amount_at_risk / 10000, // Normalize
+    customer_success_rate: (caseData.successful_payments || 0) / Math.max(caseData.total_payments || 0, 1),
+    amount_relative_to_average: (caseData.amount_at_risk || caseData.amountAtRisk || 0) / 10000, // Normalize
     days_since_failure: getDaysSince(caseData.created_at)
   };
 }

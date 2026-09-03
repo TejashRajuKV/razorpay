@@ -26,6 +26,7 @@ import {
   Maximize2
 } from 'lucide-react';
 
+import Footer from '../components/Footer';
 export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRunning, metrics }) {
   // Video Player State
   const videoRef = useRef(null);
@@ -569,23 +570,7 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
         </div>
       </section>
 
-      {/* 5. CALL TO ACTION BANNER */}
-      <section className="cta-banner porcelain-card">
-        <div className="cta-content">
-          <h2 className="cta-heading font-serif-title">
-            Ready to plug your payment revenue leaks?
-          </h2>
-          <p className="cta-sub">
-            Explore the live interactive merchant dashboard, run batch simulations, and inspect explainable AI decisions.
-          </p>
-          <div className="cta-btn-row">
-            <button className="btn btn-primary btn-lg" onClick={onLaunchConsole}>
-              <span>Open Merchant Recovery Console</span>
-              <ArrowRight size={18} />
-            </button>
-          </div>
-        </div>
-      </section>
+      <Footer onLaunchConsole={onLaunchConsole} />
 
       <style>{`
         .landing-page {
