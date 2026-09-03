@@ -490,6 +490,7 @@ async function runRecoveryWorkflow(caseId, mlService) {
 module.exports = {
   detectRevenueAtRisk,
   createRecoveryCase,
+  calculatePriorityScore,
   decideRecoveryAction,
   executeRecoveryAction,
   getRecoveryCase,

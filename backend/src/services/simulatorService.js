@@ -51,7 +51,17 @@ const TIME_MODIFIERS = {
 async function executeAction(actionType, recoveryCase) {
   // Simulate processing delay
   await delay(100 + Math.random() * 200);
-  
+
+  // 'stop' means halt recovery — it must never report success or recovered money.
+  if (actionType === 'stop') {
+    return {
+      success: false,
+      message: generateResultMessage('stop', false, recoveryCase),
+      recoveredAmount: 0,
+      simulationDetails: { baseSuccessRate: 0, finalProbability: 0, stopped: true },
+    };
+  }
+
   const baseSuccessRate = getBaseSuccessRate(actionType, recoveryCase.failureReason);
   const customerModifier = getCustomerModifier(recoveryCase);
   const timeModifier = getTimeModifier();
