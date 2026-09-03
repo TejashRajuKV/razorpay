@@ -93,16 +93,13 @@ export default function Header({
           position: sticky;
           top: 0;
           z-index: 100;
-          background: rgba(251, 247, 240, 0.88);
-          backdrop-filter: blur(16px);
-          -webkit-backdrop-filter: blur(16px);
-          border-bottom: 1px solid var(--border-subtle);
-          padding: 12px 32px;
-          transition: all 0.3s ease;
+          background: #FFFEFA;
+          border-bottom: 1px solid #1A1A1A;
+          padding: 14px 28px;
         }
 
         .header-inner {
-          max-width: 1440px;
+          max-width: 1280px;
           margin: 0 auto;
           display: flex;
           align-items: center;
@@ -113,20 +110,20 @@ export default function Header({
         .brand-group {
           display: flex;
           align-items: center;
-          gap: 12px;
+          gap: 10px;
           user-select: none;
         }
 
         .logo-badge {
-          width: 42px;
-          height: 42px;
-          background: linear-gradient(135deg, #FF7A1A 0%, #FF5500 100%);
-          border-radius: 14px;
+          width: 38px;
+          height: 38px;
+          background: #111110;
+          border-radius: 10px;
           display: flex;
           align-items: center;
           justify-content: center;
           position: relative;
-          box-shadow: var(--shadow-glow-orange);
+          box-shadow: none;
         }
 
         .brand-titles {
@@ -137,66 +134,63 @@ export default function Header({
         .brand-name {
           font-family: var(--font-display);
           font-weight: 800;
-          font-size: 17px;
-          line-height: 1.15;
-          color: var(--text-primary);
+          font-size: 15px;
+          line-height: 1.1;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: #111110;
           display: flex;
           align-items: center;
           gap: 6px;
         }
 
         .brand-ai {
-          background: linear-gradient(135deg, #FF6A00 0%, #0066FF 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
+          background: none;
+          -webkit-text-fill-color: #111110;
+          font-weight: 400;
         }
 
         .brand-subtitle {
-          font-size: 11px;
-          font-weight: 600;
-          color: var(--text-muted);
-          letter-spacing: 0.02em;
+          font-size: 10.5px;
+          font-weight: 500;
+          color: #7A7A72;
+          letter-spacing: 0.04em;
         }
 
         .mode-nav {
           display: flex;
           align-items: center;
-          padding: 4px;
-          gap: 4px;
-          box-shadow: var(--shadow-sm);
+          padding: 3px;
+          gap: 2px;
+          background: #fff;
+          border: 1px solid #E9E1CC;
+          border-radius: 999px;
+          box-shadow: none;
         }
 
         .nav-mode-btn {
           display: flex;
           align-items: center;
-          gap: 8px;
-          padding: 8px 18px;
-          font-family: var(--font-display);
+          gap: 7px;
+          padding: 7px 16px;
           font-weight: 600;
-          font-size: 13.5px;
-          color: var(--text-secondary);
+          font-size: 12.5px;
+          color: #4E4E48;
           background: transparent;
           border: none;
-          border-radius: var(--radius-pill);
+          border-radius: 999px;
           cursor: pointer;
-          transition: all var(--transition-fast);
-        }
-
-        .nav-mode-btn:hover {
-          color: var(--text-primary);
-          background: rgba(0, 0, 0, 0.03);
         }
 
         .nav-mode-btn.active {
-          background: #FFFFFF;
-          color: var(--accent-orange);
-          box-shadow: 0 4px 12px rgba(120, 90, 50, 0.08);
+          background: #111110;
+          color: #fff;
           font-weight: 700;
         }
 
         .live-counter-pill {
-          background: var(--accent-emerald-light);
-          color: var(--accent-emerald-dark);
+          background: var(--teal);
+          color: #111110;
           font-size: 10px;
           font-weight: 800;
           padding: 2px 7px;
@@ -207,7 +201,7 @@ export default function Header({
         .header-actions {
           display: flex;
           align-items: center;
-          gap: 12px;
+          gap: 10px;
         }
 
         .agent-status-pill {
@@ -215,18 +209,29 @@ export default function Header({
           align-items: center;
           gap: 8px;
           padding: 6px 14px;
-          font-size: 12.5px;
+          font-size: 12px;
           font-weight: 600;
-          color: var(--text-primary);
+          color: #111110;
+          background: #fff;
+          border: 1px solid #E9E1CC;
+          border-radius: 999px;
         }
 
         .accuracy-tag {
           font-size: 11px;
           font-weight: 700;
-          color: var(--accent-emerald-dark);
-          background: var(--accent-emerald-light);
-          padding: 2px 6px;
-          border-radius: 6px;
+          color: #111110;
+          background: var(--teal);
+          padding: 2px 8px;
+          border-radius: 999px;
+        }
+        .header-actions .btn {
+          background: var(--teal);
+          color: #111110;
+          border: 1.5px solid #111110;
+          border-radius: 999px;
+          box-shadow: 2.5px 2.5px 0px #111110;
+          font-weight: 700;
         }
 
         .spin-icon {
