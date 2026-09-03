@@ -1,3 +1,29 @@
-(frontend/src/services/api.js has been added, and frontend/src/App.jsx has been modified. These are source code files, and there are no build artifacts, dependencies, or temporary files in the changes. Therefore, no additional entries are needed in the .gitignore file beyond what might already be there for general purposes, but since the provided current .gitignore is empty and only source files are involved, the result is empty.)
+# Dependencies
+node_modules/
+backend/node_modules/
+frontend/node_modules/
 
-(No content to output since only source files are involved.)
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+venv/
+.venv/
+
+# Environment files
+.env
+.env.local
+!.env.example
+
+# Media / temporary test recordings
+*.mp4
+*.avi
+*.mov
+
+# Build / IDE outputs
+dist/
+build/
+.vscode/
+.idea/
+.DS_Store
