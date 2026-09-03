@@ -15,21 +15,7 @@ CREATE TABLE IF NOT EXISTS customers (
     total_revenue DECIMAL(15, 2) DEFAULT 0.00,
     risk_score DECIMAL(5, 4) DEFAULT 0.0000,
     last_payment_date TIMESTAMP,
-    customer_segment VARCHAR(50) DEFAULT 'standard',
-    inactive_days INT DEFAULT 0,
-    preferred_categories JSON
-);
-
--- Campaigns table: Pre-emptive AI product-match recovery campaigns
-CREATE TABLE IF NOT EXISTS campaigns (
-    id VARCHAR(36) PRIMARY KEY,
-    product_name VARCHAR(255) NOT NULL,
-    product_category VARCHAR(100) NOT NULL,
-    product_price DECIMAL(15, 2) NOT NULL,
-    status VARCHAR(50) DEFAULT 'active', -- 'active', 'completed'
-    target_count INT DEFAULT 0,
-    recovered_revenue DECIMAL(15, 2) DEFAULT 0.00,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    customer_segment VARCHAR(50) DEFAULT 'standard'
 );
 
 -- Payments table: Individual payment transactions
@@ -50,12 +36,11 @@ CREATE TABLE IF NOT EXISTS payments (
 -- Recovery cases table: Revenue-at-risk cases with diagnosis and status
 CREATE TABLE IF NOT EXISTS recovery_cases (
     id VARCHAR(36) PRIMARY KEY,
-    payment_id VARCHAR(36), -- Nullable for campaign-based pre-emptive recovery
-    campaign_id VARCHAR(36), -- Link to campaigns
+    payment_id VARCHAR(36) NOT NULL,
     customer_id VARCHAR(36) NOT NULL,
     amount_at_risk DECIMAL(15, 2) NOT NULL,
     risk_probability DECIMAL(5, 4) NOT NULL,
-    diagnosis VARCHAR(100) NOT NULL, -- 'temporary_failure', 'repeated_failure', 'abandonment', 'overdue', 'inactive_category_match'
+    diagnosis VARCHAR(100) NOT NULL, -- 'temporary_failure', 'repeated_failure', 'abandonment', 'overdue'
     diagnosis_factors JSON,
     priority_score DECIMAL(5, 4) NOT NULL,
     status VARCHAR(50) DEFAULT 'open', -- 'open', 'in_progress', 'resolved', 'stopped', 'escalated'
@@ -65,7 +50,6 @@ CREATE TABLE IF NOT EXISTS recovery_cases (
     resolved_at TIMESTAMP,
     recovered_amount DECIMAL(15, 2) DEFAULT 0.00,
     FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE CASCADE,
-    FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
 );
 

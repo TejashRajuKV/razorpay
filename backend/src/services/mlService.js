@@ -14,7 +14,6 @@ const ML_CONFIG = {
     predictRisk: '/predict/risk',
     predictDiagnosis: '/predict/diagnosis',
     predictRecovery: '/predict/recovery',
-    predictProductMatch: '/predict/product-match',
     batchPredict: '/predict/batch'
   }
 };
@@ -127,47 +126,6 @@ async function batchPredict(cases) {
   } catch (error) {
     console.error('[ML Service] Batch prediction failed:', error.message);
     throw error;
-  }
-}
-
-/**
- * Predict product match probability for a customer and product category
- * @param {Object} customerData - Customer data including inactive_days and preferred_categories
- * @param {String} productCategory - Category of the new product
- * @returns {Promise<Object>} Match probability prediction
- */
-async function predictProductMatch(customerData, productCategory) {
-  try {
-    const response = await axios.post(
-      `${ML_CONFIG.baseUrl}${ML_CONFIG.endpoints.predictProductMatch}`,
-      { 
-        customer: customerData,
-        product_category: productCategory
-      },
-      { timeout: ML_CONFIG.timeout }
-    );
-    
-    return {
-      matchProbability: response.data.match_probability,
-      modelVersion: response.data.model_version
-    };
-  } catch (error) {
-    console.warn('[ML Service] Product match prediction failed, using fallback:', error.message);
-    
-    // Fallback heuristic
-    const inactive = parseInt(customerData.inactive_days) || 0;
-    let match = 0.0;
-    try {
-      const cats = JSON.parse(customerData.preferred_categories || '[]');
-      match = cats.includes(productCategory) ? 1.0 : 0.0;
-    } catch (e) {}
-    
-    const prob = Math.max(0.01, (0.7 ? match : 0.1) - Math.min(inactive / 100.0, 0.5));
-    
-    return {
-      matchProbability: prob,
-      modelVersion: 'fallback-v1.1'
-    };
   }
 }
 
@@ -354,7 +312,6 @@ module.exports = {
   predictRisk,
   diagnose,
   getRecoveryProbabilities,
-  predictProductMatch,
   batchPredict,
   ML_CONFIG
 };

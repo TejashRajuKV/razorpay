@@ -1,43 +1,35 @@
-# AI Customer Revenue Recovery Agent
-**Razorpay AI Buildathon — Track 03: AI Revenue Recovery**
+# AI Revenue Recovery Agent
 
-An autonomous revenue recovery agent that detects payments at risk of permanent failure, uses local ML models (scikit-learn) to diagnose the root cause, and executes bounded recovery actions based on business policy logic.
+## Razorpay AI Buildathon — Track 03: AI Revenue Recovery
 
----
-
-## Architecture Overview
-The project is split into three main layers:
-
-1. **Frontend (React / Vite)**:
-   A premium merchant dashboard simulating real-time revenue recovery. Contains views for the Dashboard, Cases, Simulator, ML Analytics, and an immutable Audit Trail.
-   - Run: `cd frontend && npm install && npm run dev`
-   - Access: `http://localhost:5173`
-
-2. **Backend (Node.js / Express)**:
-   The orchestration layer that manages SQLite persistence, business rules, API routing, and the `riskService` policy engine.
-   - Run: `cd backend && npm install`
-   - Seed data: `npm run seed`
-   - Start: `npm run start`
-
-3. **ML Service (Python / Scikit-learn)**:
-   Three locally trained models powering the risk detection and diagnosis.
-   - **Risk Classifier**: Gradient Boosting (binary classification)
-   - **Diagnosis Classifier**: Random Forest (multi-class categorization)
-   - **Recovery Regressor**: Gradient Boosting (expected recovery probability)
-   - Setup: `cd ml && pip install -r requirements.txt`
-   - Train models: `python scripts/train.py`
-   - Start Flask API: `python app.py`
+A bounded AI-powered Revenue Recovery Agent that identifies revenue at risk, diagnoses the cause, selects appropriate recovery actions, executes bounded workflows, and measures recovered money.
 
 ---
 
-## Bounded Safety
-A core principle of this project is **safety and governance**. The agent is strictly bounded by:
-- Maximum retry attempts
-- Minimum cooldown periods between touches
-- Human escalation thresholds for high-value transactions
-- Absolute stopping rules to prevent repeated customer spam
+## Project Overview
 
-Every decision and outcome is recorded in the **Audit Trail**.
+This project implements a complete **Detect → Diagnose → Decide → Act → Observe → Measure** loop for recovering lost revenue from failed payments, abandoned checkouts, and other revenue-at-risk events.
+
+### Key Features
+- **Revenue Risk Detection**: Identify payments likely to result in lost revenue
+- **AI Root-Cause Diagnosis**: Classify failure reasons (temporary, repeated, data issues, abandonment)
+- **Recovery Action Selection**: Choose optimal intervention (retry, reminder, payment link, escalate)
+- **Bounded Execution**: Safety rules, retry limits, cooldown periods
+- **Audit Trail**: Complete logging of all decisions and actions
+- **Payment Simulator**: Synthetic data generation for testing without external APIs
+- **Local ML Engine**: Rule-based models (no external LLM dependencies)
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Frontend | React.js |
+| Backend | Node.js + Express.js |
+| Database | SQLite (dev) / PostgreSQL (prod) |
+| AI/ML | Python + scikit-learn (local) |
+| Simulator | JavaScript (built-in) |
 
 ---
 
@@ -287,12 +279,3 @@ MIT License - See LICENSE file for details
 ## Team
 
 Built for Razorpay AI Buildathon Track 03
-
----
-
-## How to Demo
-1. Start the Frontend.
-2. In the `Merchant Console`, click the **Inject Scenario** buttons to simulate specific failures (e.g., 3DS Dropout, Enterprise Autopay Cap).
-3. The AI agent will detect, diagnose, and recommend a bounded action.
-4. Open **Recovery Cases** to drill down into the SHAP-style explanation and execute the action.
-5. Check the **Audit Logs** for the verifiable paper trail.

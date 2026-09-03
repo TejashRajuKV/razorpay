@@ -14,7 +14,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 from src.risk_model import RiskPredictionModel
 from src.diagnosis_model import DiagnosisModel
 from src.recovery_model import RecoveryProbabilityModel
-import joblib
 
 app = Flask(__name__)
 CORS(app)
@@ -23,7 +22,6 @@ CORS(app)
 risk_model = None
 diagnosis_model = None
 recovery_model = None
-product_match_model = None
 
 
 def get_risk_model():
@@ -51,15 +49,6 @@ def get_recovery_model():
         recovery_model = RecoveryProbabilityModel()
         recovery_model.initialize()
     return recovery_model
-
-def get_product_match_model():
-    """Lazy load product match model"""
-    global product_match_model
-    if product_match_model is None:
-        model_path = os.path.join(os.path.dirname(__file__), 'models', 'product_match_model.pkl')
-        if os.path.exists(model_path):
-            product_match_model = joblib.load(model_path)
-    return product_match_model
 
 
 @app.route('/health', methods=['GET'])
@@ -153,6 +142,26 @@ def predict_diagnosis():
 def predict_recovery():
     """
     Predict recovery probability for different actions
+    
+    Request body:
+    {
+        "case_features": {...},
+        "diagnosis": "temporary_failure"
+    }
+    
+    Response:
+    {
+        "probabilities": {
+            "retry": 0.78,
+            "reminder": 0.45,
+            "payment_link": 0.52,
+            "retry_later": 0.35,
+            "escalate": 0.25,
+            "stop": 0.05
+        },
+        "recommended_action": "retry",
+        "model_version": "v1.0.0"
+    }
     """
     try:
         data = request.get_json()
@@ -163,52 +172,6 @@ def predict_recovery():
         result = model.predict(data['case_features'], data['diagnosis'])
         
         return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/predict/product-match', methods=['POST'])
-def predict_product_match():
-    """
-    Predicts probability of a customer buying a new product.
-    Request body:
-    {
-        "customer": {
-            "inactive_days": 35,
-            "preferred_categories": '["shoes", "electronics"]',
-            "customer_success_rate": 0.95
-        },
-        "product_category": "shoes"
-    }
-    """
-    try:
-        data = request.get_json()
-        if not data or 'customer' not in data or 'product_category' not in data:
-            return jsonify({'error': 'customer and product_category required'}), 400
-            
-        model = get_product_match_model()
-        if model is None:
-            # Fallback heuristic if not trained
-            c = data['customer']
-            cat = data['product_category']
-            import json
-            try:
-                cats = json.loads(c.get('preferred_categories', '[]'))
-                match = 1.0 if cat in cats else 0.0
-            except:
-                match = 0.0
-            
-            inactive = float(c.get('inactive_days', 0))
-            prob = max(0.01, (0.7 if match else 0.1) - min(inactive / 100.0, 0.5))
-        else:
-            import pandas as pd
-            df = pd.DataFrame([data['customer']])
-            prob = float(model.predict(df, data['product_category'])[0])
-            
-        return jsonify({
-            'match_probability': prob,
-            'model_version': 'v1.1.0'
-        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
