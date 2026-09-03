@@ -27,9 +27,11 @@ async function checkHealth() {
     const response = await axios.get(`${ML_CONFIG.baseUrl}${ML_CONFIG.endpoints.health}`, {
       timeout: 2000
     });
-    return response.status === 200;
+    const ok = response.status === 200;
+    console.log(ok ? '[ML] Python service connected' : '[ML] Python service unhealthy');
+    return ok;
   } catch (error) {
-    console.warn('[ML Service] Health check failed:', error.message);
+    console.warn('[ML] Python service unreachable, fallback mode:', error.message);
     return false;
   }
 }
@@ -46,16 +48,18 @@ async function predictRisk(paymentData) {
       { features: extractRiskFeatures(paymentData) },
       { timeout: ML_CONFIG.timeout }
     );
-    
+
+    console.log('[ML] Risk prediction completed (python)');
     return {
       riskProbability: response.data.risk_probability,
       confidence: response.data.confidence,
       modelVersion: response.data.model_version,
-      factors: response.data.factors || []
+      factors: response.data.factors || [],
+      source: 'python'
     };
   } catch (error) {
-    console.warn('[ML Service] Risk prediction failed, using fallback:', error.message);
-    return getFallbackRiskPrediction(paymentData);
+    console.warn('[ML] Risk prediction fallback (python unavailable):', error.message);
+    return { ...getFallbackRiskPrediction(paymentData), source: 'fallback' };
   }
 }
 
@@ -71,17 +75,19 @@ async function diagnose(caseData) {
       { features: extractDiagnosisFeatures(caseData) },
       { timeout: ML_CONFIG.timeout }
     );
-    
+
+    console.log('[ML] Diagnosis completed (python)');
     return {
       diagnosis: response.data.diagnosis,
       confidence: response.data.confidence,
       modelVersion: response.data.model_version,
       factors: response.data.factors || [],
-      alternativeDiagnoses: response.data.alternatives || []
+      alternativeDiagnoses: response.data.alternatives || [],
+      source: 'python'
     };
   } catch (error) {
-    console.warn('[ML Service] Diagnosis failed, using fallback:', error.message);
-    return getFallbackDiagnosis(caseData);
+    console.warn('[ML] Diagnosis fallback (python unavailable):', error.message);
+    return { ...getFallbackDiagnosis(caseData), source: 'fallback' };
   }
 }
 
@@ -95,17 +101,18 @@ async function getRecoveryProbabilities(caseData, diagnosis) {
   try {
     const response = await axios.post(
       `${ML_CONFIG.baseUrl}${ML_CONFIG.endpoints.predictRecovery}`,
-      { 
+      {
         case_features: extractRecoveryFeatures(caseData),
         diagnosis: diagnosis.diagnosis
       },
       { timeout: ML_CONFIG.timeout }
     );
-    
-    return response.data.probabilities;
+
+    console.log('[ML] Recovery probability completed (python)');
+    return { ...response.data.probabilities, _source: 'python' };
   } catch (error) {
-    console.warn('[ML Service] Recovery probability prediction failed, using fallback:', error.message);
-    return getFallbackRecoveryProbabilities(caseData, diagnosis);
+    console.warn('[ML] Recovery probability fallback (python unavailable):', error.message);
+    return { ...getFallbackRecoveryProbabilities(caseData, diagnosis), _source: 'fallback' };
   }
 }
 

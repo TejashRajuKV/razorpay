@@ -198,11 +198,19 @@ async function executeRecoveryAction(caseId, actionType) {
   
   const recoveryCase = cases[0];
   
-  // Check stopping rules
+  // Check stopping rules (backend-enforced, always audited)
   const stopCheck = await checkStoppingRules(recoveryCase, actionType);
   if (!stopCheck.allowed) {
+    await auditService.logEvent({
+      entityType: 'action',
+      entityId: caseId,
+      eventType: 'safety_check_blocked',
+      eventData: { action_type: actionType, case_id: caseId, reason: stopCheck.reason },
+      newState: { status: 'blocked' }
+    });
     return {
       success: false,
+      blocked: true,
       reason: stopCheck.reason,
       action: actionType,
       caseId
@@ -294,11 +302,29 @@ async function executeRecoveryAction(caseId, actionType) {
 }
 
 /**
- * Check stopping rules before executing an action
+ * Check stopping rules before executing an action (backend-enforced).
  */
 async function checkStoppingRules(recoveryCase, actionType) {
+  const status = (recoveryCase.status || '').toLowerCase();
+  if (status === 'resolved') {
+    return { allowed: false, reason: 'Case already resolved — no further actions allowed' };
+  }
+  if (status === 'stopped') {
+    return { allowed: false, reason: 'Case already stopped — no further actions allowed' };
+  }
+  // Low recovery probability guard
+  const prob = parseFloat(recoveryCase.recovery_probability ?? recoveryCase.priority_score ?? 1);
+  if (!Number.isNaN(prob) && prob < 0.08 && actionType !== 'stop' && actionType !== 'escalate') {
+    return { allowed: false, reason: `Recovery probability too low (${prob.toFixed(2)}) — stopping` };
+  }
+  // High-value + low-confidence escalation
+  const amount = parseFloat(recoveryCase.amount_at_risk ?? recoveryCase.amountAtRisk ?? 0);
+  const conf = parseFloat(recoveryCase.priority_score ?? 1);
+  if (amount > CONFIG.HIGH_VALUE_THRESHOLD && conf < CONFIG.LOW_CONFIDENCE_THRESHOLD && actionType !== 'escalate' && actionType !== 'stop') {
+    return { allowed: false, reason: `High-value (₹${amount}) + low-confidence — human escalation required` };
+  }
   // Check maximum retry attempts
-  if (actionType === 'retry') {
+  if (actionType === 'retry' || actionType === 'retry_later') {
     const retryCount = await getCurrentAttemptCount(recoveryCase.id);
     if (retryCount >= CONFIG.MAX_RETRY_ATTEMPTS) {
       return {
@@ -306,16 +332,16 @@ async function checkStoppingRules(recoveryCase, actionType) {
         reason: `Maximum retry attempts (${CONFIG.MAX_RETRY_ATTEMPTS}) reached`
       };
     }
-    
+
     // Check cooldown period
     const lastActionQuery = `
-      SELECT executed_at, cooldown_until 
-      FROM recovery_actions 
-      WHERE case_id = ? AND action_type = 'retry' 
+      SELECT executed_at, cooldown_until
+      FROM recovery_actions
+      WHERE case_id = ? AND action_type IN ('retry','retry_later')
       ORDER BY created_at DESC LIMIT 1
     `;
     const lastActions = await db.query(lastActionQuery, [recoveryCase.id]);
-    
+
     if (lastActions.length > 0 && lastActions[0].cooldown_until) {
       const cooldownTime = new Date(lastActions[0].cooldown_until);
       if (new Date() < cooldownTime) {
@@ -326,7 +352,7 @@ async function checkStoppingRules(recoveryCase, actionType) {
       }
     }
   }
-  
+
   // Check total recovery attempts
   const totalAttempts = await getTotalAttemptCount(recoveryCase.id);
   if (totalAttempts >= CONFIG.MAX_RECOVERY_ATTEMPTS) {
@@ -335,7 +361,7 @@ async function checkStoppingRules(recoveryCase, actionType) {
       reason: `Maximum total recovery attempts (${CONFIG.MAX_RECOVERY_ATTEMPTS}) reached`
     };
   }
-  
+
   return { allowed: true };
 }
 

@@ -55,29 +55,66 @@ export const casesAPI = {
   getCaseById: (caseId) => apiRequest(`/cases/${caseId}`),
   updateCaseStatus: (caseId, status) => 
     apiRequest(`/cases/${caseId}/status`, {
-      method: 'PATCH',
+      method: 'PUT',
       body: JSON.stringify({ status }),
     }),
 };
 
 /**
+ * Normalize frontend action names to backend action names
+ */
+const normalizeActionName = (frontendAction) => {
+  const mapping = {
+    RETRY_IMMEDIATE: 'retry',
+    RETRY_OPTIMAL_WINDOW: 'retry_later',
+    SEND_SMART_PAYMENT_LINK: 'payment_link',
+    SEND_WHATSAPP_REMINDER: 'reminder',
+    SEND_REMINDER: 'reminder',
+    SWITCH_PAYMENT_METHOD: 'payment_link',
+    ESCALATE_HUMAN_REVIEW: 'escalate',
+    STOP_RECOVERY: 'stop',
+  };
+  return mapping[frontendAction] || frontendAction;
+};
+
+/**
  * Recovery API endpoints
+ * Backend case detail already contains actions array.
  */
 export const recoveryAPI = {
   executeAction: (caseId, actionType) =>
-    apiRequest('/recovery/execute', {
+    apiRequest(`/cases/${caseId}/action`, {
       method: 'POST',
-      body: JSON.stringify({ caseId, actionType }),
+      body: JSON.stringify({ actionType: normalizeActionName(actionType) }),
     }),
-  getRecoveryHistory: (caseId) => apiRequest(`/recovery/history/${caseId}`),
+  getRecoveryHistory: async (caseId) => {
+    const res = await apiRequest(`/cases/${caseId}`);
+    return res?.data?.actions || res?.data || [];
+  },
 };
 
 /**
  * Analytics API endpoints
+ * Backend: GET /analytics/overview, GET /analytics/trends?period=daily|hourly|weekly|monthly
  */
 export const analyticsAPI = {
-  getMetrics: () => apiRequest('/analytics/metrics'),
-  getTrends: (timeRange = '7d') => apiRequest(`/analytics/trends?range=${timeRange}`),
+  getOverview: () => apiRequest('/analytics/overview'),
+  getMetrics: () => apiRequest('/analytics/overview'),
+  getTrends: (timeRange = '7d') => {
+    const periodMap = {
+      '24h': 'hourly',
+      '1d': 'hourly',
+      '7d': 'daily',
+      '30d': 'weekly',
+      '90d': 'monthly',
+      daily: 'daily',
+      hourly: 'hourly',
+      weekly: 'weekly',
+      monthly: 'monthly',
+    };
+    const period = periodMap[timeRange] || 'daily';
+    return apiRequest(`/analytics/trends?period=${period}`);
+  },
   getMLInsights: () => apiRequest('/analytics/ml-insights'),
 };
 
@@ -87,32 +124,48 @@ export const analyticsAPI = {
 export const auditAPI = {
   getLogs: (filters = {}) => {
     const params = new URLSearchParams(filters).toString();
-    return apiRequest(`/audit${params ? `?${params}` : ''}`);
+    return apiRequest(`/audit/logs${params ? `?${params}` : ''}`);
   },
-  getAuditTrail: (caseId) => apiRequest(`/audit/trail/${caseId}`),
+  getAuditTrail: (caseId) => apiRequest(`/audit/case/${caseId}`),
 };
 
 /**
  * Simulator API endpoints
+ * Backend: POST /recovery/simulate-batch { count }, POST /recovery/run-batch
+ * Scenario inject/reset are FRONTEND-ONLY demo helpers (no backend endpoint).
  */
 export const simulatorAPI = {
   runBatchSimulation: (batchSize = 50) =>
-    apiRequest('/simulator/batch', {
+    apiRequest('/recovery/simulate-batch', {
       method: 'POST',
-      body: JSON.stringify({ batchSize }),
+      body: JSON.stringify({ count: batchSize }),
     }),
-  injectScenario: (scenarioKey) =>
-    apiRequest('/simulator/inject', {
+  runBatch: (payload = {}) =>
+    apiRequest('/recovery/run-batch', {
       method: 'POST',
-      body: JSON.stringify({ scenarioKey }),
+      body: JSON.stringify({ limit: 50, ...payload }),
     }),
-  resetSimulator: () => apiRequest('/simulator/reset', { method: 'POST' }),
+  injectScenario: async (scenarioKey) => {
+    console.warn('[simulator] injectScenario is frontend-only demo helper, no backend call:', scenarioKey);
+    return { success: true, demoOnly: true, scenarioKey };
+  },
+  resetSimulator: async () => {
+    console.warn('[simulator] resetSimulator is frontend-only demo helper');
+    return { success: true, demoOnly: true };
+  },
 };
 
 /**
  * Health check endpoint
+ * Backend root health is GET /health (NOT under /api/v1)
+ * Must bypass API_BASE_URL prefix.
  */
-export const healthCheck = () => apiRequest('/health');
+const API_ROOT_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1').replace(/\/api\/v\d+$/, '');
+export const healthCheck = async () => {
+  const res = await fetch(`${API_ROOT_URL}/health`);
+  if (!res.ok) throw new Error(`Health check failed: ${res.status}`);
+  return res.json();
+};
 
 export default {
   dashboard: dashboardAPI,

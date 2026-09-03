@@ -15,9 +15,8 @@ export const INITIAL_METRICS = {
   activeCases: 18,
   stoppedCases: 6,
   escalatedCases: 4,
-  mlAccuracy: 91.4,
-  mlF1Score: 0.892,
-  mlRocAuc: 0.945,
+  // NOTE: mlAccuracy/mlF1Score/mlRocAuc removed — only show when produced
+  // by a real Python train/test evaluation. See /analytics/ml-insights.
   avgRecoveryTimeMinutes: 14.2
 };
 

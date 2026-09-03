@@ -35,38 +35,48 @@ export default function AnalyticsPage({ metrics }) {
             Model Performance & Channel Conversions
           </h1>
           <p className="analytics-sub">
-            Evaluated on held-out test sets. Real recovery conversion tracking across retry channels, 
-            smart links, and human escalations.
+            ML insights below are derived from live recovery analytics (real cases/actions in SQL).
+            Model scores are shown only when produced by actual train/test evaluation — no fake accuracy.
           </p>
         </div>
       </section>
 
-      {/* 1. ML Evaluation Metric Cards */}
+      {/* 1. Recovery Metrics (real SQL-backed; ML scores only if actually evaluated) */}
       <div className="ml-metrics-strip">
         <div className="porcelain-card ml-stat-card">
-          <span className="ml-label">ML Accuracy</span>
-          <div className="ml-val emerald">{metrics.mlAccuracy}%</div>
-          <span className="ml-note">Test set accuracy</span>
+          <span className="ml-label">Recovered Revenue</span>
+          <div className="ml-val emerald">₹{Number(metrics.recoveredRevenue || 0).toLocaleString('en-IN')}</div>
+          <span className="ml-note">Measured from SQL</span>
         </div>
 
         <div className="porcelain-card ml-stat-card">
-          <span className="ml-label">F1-Score (Macro)</span>
-          <div className="ml-val blue">{metrics.mlF1Score}</div>
-          <span className="ml-note">Balanced multi-class</span>
+          <span className="ml-label">Recovery Rate</span>
+          <div className="ml-val blue">{metrics.recoveryRate || 0}%</div>
+          <span className="ml-note">Recovered / at-risk</span>
         </div>
 
         <div className="porcelain-card ml-stat-card">
-          <span className="ml-label">ROC-AUC Score</span>
-          <div className="ml-val purple">{metrics.mlRocAuc}</div>
-          <span className="ml-note">Risk discrimination</span>
+          <span className="ml-label">Revenue At Risk</span>
+          <div className="ml-val purple">₹{Number(metrics.revenueAtRisk || 0).toLocaleString('en-IN')}</div>
+          <span className="ml-note">Failed / abandoned</span>
         </div>
 
         <div className="porcelain-card ml-stat-card">
           <span className="ml-label">Avg Recovery Time</span>
-          <div className="ml-val orange">{metrics.avgRecoveryTimeMinutes}m</div>
-          <span className="ml-note">Fastest via smart retry</span>
+          <div className="ml-val orange">{metrics.avgRecoveryTimeMinutes || '—'}</div>
+          <span className="ml-note">{metrics.avgRecoveryTimeMinutes ? 'Fastest via smart retry' : 'Not measured yet'}</span>
         </div>
       </div>
+      {metrics.mlAccuracy ? (
+        <div className="porcelain-card" style={{ padding: 16 }}>
+          <span className="ml-label">Model evaluation (train/test): </span>
+          <span>Acc {metrics.mlAccuracy}% · F1 {metrics.mlF1Score} · AUC {metrics.mlRocAuc}</span>
+        </div>
+      ) : (
+        <div className="porcelain-card" style={{ padding: 16, fontSize: 13 }}>
+          Model accuracy / F1 / ROC-AUC are hidden until a real Python train/test evaluation exposes them.
+        </div>
+      )}
 
       {/* 2. Action Conversion Performance & Root Cause Distribution */}
       <div className="analytics-grid">

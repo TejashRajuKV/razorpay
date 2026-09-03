@@ -30,7 +30,7 @@ export default function App() {
   // Dashboard Sub-navigation: 'overview', 'simulator', 'analytics', 'audit'
   const [dashboardTab, setDashboardTab] = useState('overview');
 
-  // Application Dynamic State
+  // Application Dynamic State — mock is explicit offline fallback only
   const [metrics, setMetrics] = useState(INITIAL_METRICS);
   const [cases, setCases] = useState(INITIAL_CASES);
   const [selectedCaseId, setSelectedCaseId] = useState('REC-1042');
@@ -38,6 +38,7 @@ export default function App() {
   const [isBatchRunning, setIsBatchRunning] = useState(false);
   const [backendConnected, setBackendConnected] = useState(false);
   const [loadingFromBackend, setLoadingFromBackend] = useState(false);
+  const [backendError, setBackendError] = useState(null);
 
   // Check backend connection on mount
   useEffect(() => {
@@ -75,21 +76,59 @@ export default function App() {
         }));
       }
 
-      // Fetch cases
+      // Fetch cases — backend: { success, data: { cases, count } }
       const casesRes = await apiService.cases.getAllCases();
-      if (casesRes.success && casesRes.data) {
-        setCases(casesRes.data);
+      if (casesRes.success && casesRes.data?.cases && Array.isArray(casesRes.data.cases)) {
+        setCases(casesRes.data.cases);
       }
 
-      // Fetch audit logs
+      // Fetch audit logs — backend: { success, data: { logs, count } }
       const auditRes = await apiService.audit.getLogs();
       if (auditRes.success && auditRes.data) {
-        setAuditLogs(auditRes.data);
+        const logs = Array.isArray(auditRes.data) ? auditRes.data : (auditRes.data.logs || []);
+        setAuditLogs(logs);
       }
+      setBackendError(null);
     } catch (error) {
       console.error('[App] Failed to load data from backend:', error);
+      setBackendError('Backend request failed — showing cached demo data');
     } finally {
       setLoadingFromBackend(false);
+    }
+  };
+
+  // Refresh dashboard + case + audit from backend after an action (prevents drift from SQL)
+  const refreshFromBackend = async (caseId) => {
+    try {
+      const [overviewRes, casesRes] = await Promise.all([
+        apiService.dashboard.getOverview(),
+        apiService.cases.getAllCases(),
+      ]);
+      if (overviewRes?.success && overviewRes.data) {
+        setMetrics(prev => ({
+          ...prev,
+          totalMonitoredRevenue: overviewRes.data.totalRevenue ?? prev.totalMonitoredRevenue,
+          revenueAtRisk: overviewRes.data.revenueAtRisk ?? prev.revenueAtRisk,
+          recoveredRevenue: overviewRes.data.recoveredRevenue ?? prev.recoveredRevenue,
+          recoveryRate: parseFloat(overviewRes.data.recoveryRate) || prev.recoveryRate,
+          activeCases: overviewRes.data.casesAtRisk ?? prev.activeCases,
+        }));
+      }
+      if (casesRes?.success && Array.isArray(casesRes.data?.cases)) {
+        setCases(casesRes.data.cases);
+      }
+      if (caseId) {
+        try {
+          const trail = await apiService.audit.getAuditTrail(caseId);
+          if (trail?.success && trail.data) {
+            const logs = await apiService.audit.getLogs();
+            const list = Array.isArray(logs?.data) ? logs.data : (logs?.data?.logs || null);
+            if (list) setAuditLogs(list);
+          }
+        } catch { /* audit refresh is best-effort */ }
+      }
+    } catch (e) {
+      console.warn('[App] refreshFromBackend failed:', e.message);
     }
   };
 
@@ -98,67 +137,44 @@ export default function App() {
     const targetCase = cases.find(c => c.id === caseId);
     if (!targetCase) return null;
 
-    // If backend is connected, call the API first
+    // Connected flow: backend simulator is source of truth — trust its result
     if (backendConnected) {
       try {
         const apiResult = await apiService.recovery.executeAction(caseId, actionType);
+        const payload = apiResult?.data || {};
         if (apiResult.success) {
-          console.log('[App] Recovery action executed via backend:', apiResult.data);
-          // Update local state based on backend response
-          if (actionType === 'STOP_RECOVERY') {
-            setMetrics(prev => ({
-              ...prev,
-              stoppedCases: prev.stoppedCases + 1,
-              activeCases: Math.max(0, prev.activeCases - 1)
-            }));
-            const newAudit = {
-              id: `AUD-${Math.floor(1000 + Math.random() * 9000)}`,
-              timestamp: new Date().toISOString(),
-              caseId: caseId,
-              actor: 'SAFETY_GUARDRAIL',
-              eventType: 'STOPPING_RULE_TRIGGERED',
-              details: `Recovery halted for case ${caseId} by safety policy.`,
-              safetyStatus: 'HALTED_PREVENTION',
-              recoveryDelta: 0
-            };
-            setAuditLogs(prev => [newAudit, ...prev]);
-            return { stopped: true, reason: 'Case stopped by safety policy' };
-          } else {
-            const recoveredAmount = apiResult.data?.recoveredAmount || targetCase.payment.amount;
-            setMetrics(prev => {
-              const newRecovered = prev.recoveredRevenue + recoveredAmount;
-              const newRate = Number(((newRecovered / prev.revenueAtRisk) * 100).toFixed(1));
-              return {
-                ...prev,
-                recoveredRevenue: newRecovered,
-                recoveryRate: Math.min(100, newRate),
-                activeCases: Math.max(0, prev.activeCases - 1)
-              };
-            });
-            const newAudit = {
-              id: `AUD-${Math.floor(1000 + Math.random() * 9000)}`,
-              timestamp: new Date().toISOString(),
-              caseId: caseId,
-              actor: 'AI_RECOVERY_AGENT',
-              eventType: 'REVENUE_RECOVERED',
-              details: `Executed bounded intervention (${actionType}) on ${targetCase.customer.name}. Payment settled for ₹${recoveredAmount.toLocaleString('en-IN')}.`,
-              safetyStatus: 'RECOVERY_CONFIRMED',
-              recoveryDelta: recoveredAmount
-            };
-            setAuditLogs(prev => [newAudit, ...prev]);
-            return {
-              recovered: true,
-              amount: recoveredAmount,
-              customerName: targetCase.customer.name
-            };
+          console.log('[App] Recovery action executed via backend:', payload);
+          if (payload.blocked) {
+            setBackendError(`Action blocked: ${payload.reason || 'safety rule'}`);
+            await refreshFromBackend(caseId);
+            return { stopped: true, blocked: true, reason: payload.reason || 'Blocked by safety policy' };
           }
+          if (actionType === 'STOP_RECOVERY') {
+            await refreshFromBackend(caseId);
+            return { stopped: true, reason: 'Case stopped by safety policy' };
+          }
+          // Trust backend simulator: success → actual recoveredAmount, failure → show failure
+          const recoveredAmount = Number(payload.recoveredAmount || 0);
+          const ok = payload.success !== false && recoveredAmount > 0;
+          await refreshFromBackend(caseId);
+          if (!ok) {
+            setBackendError(`Action executed but not recovered (${payload.message || 'simulator failure'})`);
+            return { recovered: false, amount: 0, message: payload.message };
+          }
+          return {
+            recovered: true,
+            amount: recoveredAmount,
+            customerName: targetCase.customer?.name
+          };
         }
       } catch (error) {
-        console.error('[App] Backend recovery failed, falling back to local:', error);
-        // Fall through to local handling
+        console.error('[App] Backend recovery failed:', error.message);
+        setBackendError(`Backend request failed — ${error.message}`);
+        throw error;
       }
     }
 
+    // Explicit offline demo fallback only (backend disconnected) — clearly marked
     // Local fallback (original mock behavior)
     // Safety checks
     if (actionType === 'STOP_RECOVERY') {
@@ -261,123 +277,50 @@ export default function App() {
     };
   };
 
-  // Trigger high-volume batch simulation (with optional backend sync)
+  // Trigger high-volume batch simulation — backend values only, no hardcoded revenue
   const handleTriggerBatch = async () => {
     setIsBatchRunning(true);
     setCurrentView('dashboard');
 
-    // If backend is connected, use the simulator API
     if (backendConnected) {
       try {
         const result = await apiService.simulator.runBatchSimulation(50);
         if (result.success) {
           console.log('[App] Batch simulation executed via backend:', result.data);
-          // Update state from backend response
-          const batchData = result.data;
-          setMetrics(prev => ({
-            ...prev,
-            totalMonitoredRevenue: batchData.totalMonitored || prev.totalMonitoredRevenue + 1200000,
-            revenueAtRisk: batchData.revenueAtRisk || prev.revenueAtRisk + 480000,
-            recoveredRevenue: batchData.recoveredRevenue || prev.recoveredRevenue + 325000,
-            recoveryRate: batchData.recoveryRate || prev.recoveryRate,
-            casesProcessed: prev.casesProcessed + 50,
-            activeCases: batchData.activeCases || prev.activeCases + 6,
-            stoppedCases: batchData.stoppedCases || prev.stoppedCases + 4,
-            escalatedCases: batchData.escalatedCases || prev.escalatedCases + 2
-          }));
-          
+          const b = result.data || {};
+          await refreshFromBackend();
           const batchAudit = {
             id: `AUD-${Math.floor(1000 + Math.random() * 9000)}`,
             timestamp: new Date().toISOString(),
             caseId: 'BATCH-SIM-402',
             actor: 'AI_RECOVERY_AGENT',
             eventType: 'BATCH_SIMULATION_EXECUTED',
-            details: `Backend batch: ${batchData.recovered || 36} recovered, ${batchData.stopped || 4} stopped, ${batchData.escalated || 2} escalated.`,
+            details: `Backend batch: ${b.successful ?? b.totalCases ?? 0} recovered of ${b.totalCases ?? b.totalProcessed ?? 0}, ₹${Number(b.totalRecovered || 0).toLocaleString('en-IN')} recovered.`,
             safetyStatus: 'BATCH_COMPLETED_BOUNDED',
-            recoveryDelta: batchData.recoveredAmount || 325000
+            recoveryDelta: Number(b.totalRecovered || 0)
           };
           setAuditLogs(prev => [batchAudit, ...prev]);
           setIsBatchRunning(false);
-          confetti({
-            particleCount: 120,
-            spread: 90,
-            origin: { y: 0.5 }
-          });
+          setBackendError(null);
+          confetti({ particleCount: 120, spread: 90, origin: { y: 0.5 } });
           return;
         }
+        throw new Error(result?.error || 'Batch failed');
       } catch (error) {
-        console.error('[App] Backend batch simulation failed, using local fallback:', error);
+        console.error('[App] Backend batch simulation failed:', error.message);
+        setBackendError(`Backend request failed — ${error.message}`);
+        setIsBatchRunning(false);
+        return;
       }
     }
     
-    // Simulate batch execution delay
-    await new Promise(r => setTimeout(r, 2200));
-
-    const simulatedAddedRevenue = 325000;
-    const addedCases = 50;
-    const recoveredBatchCases = 36;
-
-    setMetrics(prev => {
-      const newTotal = prev.totalMonitoredRevenue + 1200000;
-      const newAtRisk = prev.revenueAtRisk + 480000;
-      const newRecovered = prev.recoveredRevenue + simulatedAddedRevenue;
-      const newRate = Number(((newRecovered / newAtRisk) * 100).toFixed(1));
-
-      return {
-        ...prev,
-        totalMonitoredRevenue: newTotal,
-        revenueAtRisk: newAtRisk,
-        recoveredRevenue: newRecovered,
-        recoveryRate: newRate,
-        casesProcessed: prev.casesProcessed + addedCases,
-        activeCases: prev.activeCases + 6,
-        stoppedCases: prev.stoppedCases + 4,
-        escalatedCases: prev.escalatedCases + 2
-      };
-    });
-
-    // Add batch audit log
-    const batchAudit = {
-      id: `AUD-${Math.floor(1000 + Math.random() * 9000)}`,
-      timestamp: new Date().toISOString(),
-      caseId: 'BATCH-SIM-402',
-      actor: 'AI_RECOVERY_AGENT',
-      eventType: 'BATCH_SIMULATION_EXECUTED',
-      details: `Executed batch of 50 synthetic transactions: 36 recovered (+₹3,25,000), 4 stopped by safety bounds, 2 human escalations.`,
-      safetyStatus: 'BATCH_COMPLETED_BOUNDED',
-      recoveryDelta: simulatedAddedRevenue
-    };
-
-    setAuditLogs(prev => [batchAudit, ...prev]);
+    // Explicit offline demo: no backend, no fake revenue inflation
+    setBackendError('Backend unavailable — showing cached demo data (batch not executed)');
     setIsBatchRunning(false);
-
-    confetti({
-      particleCount: 120,
-      spread: 90,
-      origin: { y: 0.5 }
-    });
   };
 
-  // Inject a specific scenario into the case queue (with optional backend sync)
+  // Scenario injection is a frontend-only demo helper (no backend endpoint)
   const handleInjectScenario = async (scenarioKey) => {
-    // If backend is connected, use the simulator API
-    if (backendConnected) {
-      try {
-        const result = await apiService.simulator.injectScenario(scenarioKey);
-        if (result.success) {
-          console.log('[App] Scenario injected via backend:', result.data);
-          const caseId = result.data?.caseId;
-          if (caseId) {
-            setSelectedCaseId(caseId);
-          }
-          setCurrentView('dashboard');
-          return;
-        }
-      } catch (error) {
-        console.error('[App] Backend scenario injection failed, using local fallback:', error);
-      }
-    }
-    
     setCurrentView('dashboard');
     if (scenarioKey === 'RAHUL_UPI') {
       setSelectedCaseId('REC-1042');
@@ -393,13 +336,28 @@ export default function App() {
   return (
     <div className="app-container">
       {/* Top Universal Navigation */}
-      <Header 
+      <Header
         currentView={currentView}
         setCurrentView={setCurrentView}
         metrics={metrics}
         onTriggerBatch={handleTriggerBatch}
         isBatchRunning={isBatchRunning}
       />
+      {!backendConnected && (
+        <div style={{ background: '#FEF3C7', borderBottom: '1px solid #1A1A1A', padding: '8px 20px', fontSize: 13, fontWeight: 700, textAlign: 'center' }}>
+          Offline demo mode — backend disconnected. Showing cached demo data. ML Engine: Fallback / Offline · Model: Local heuristics
+        </div>
+      )}
+      {backendConnected && (
+        <div style={{ background: '#ECFDF5', borderBottom: '1px solid #1A1A1A', padding: '6px 20px', fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
+          ML Engine: Connected · Model: Local Python
+        </div>
+      )}
+      {backendError && (
+        <div style={{ background: '#FEE2E2', borderBottom: '1px solid #1A1A1A', padding: '8px 20px', fontSize: 13, fontWeight: 700, textAlign: 'center' }}>
+          {backendError} <button onClick={() => setBackendError(null)} style={{ marginLeft: 12, fontWeight: 800 }}>Dismiss</button>
+        </div>
+      )}
 
       <main className="main-content">
         {currentView === 'landing' ? (

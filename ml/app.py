@@ -242,6 +242,30 @@ def batch_predict():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/evaluate/risk', methods=['GET'])
+def evaluate_risk():
+    try:
+        return jsonify(get_risk_model().evaluate())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/evaluate/diagnosis', methods=['GET'])
+def evaluate_diagnosis():
+    try:
+        return jsonify(get_diagnosis_model().evaluate())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/evaluate/recovery', methods=['GET'])
+def evaluate_recovery():
+    try:
+        return jsonify(get_recovery_model().evaluate())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('ML_PORT', 5000))
     debug = os.environ.get('NODE_ENV', 'development') == 'development'

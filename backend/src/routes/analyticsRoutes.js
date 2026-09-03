@@ -15,9 +15,12 @@ const db = require('../config/database');
 router.get('/overview', async (req, res, next) => {
   try {
     const { startDate, endDate } = req.query;
-    const dateFilter = startDate && endDate 
-      ? `WHERE created_at BETWEEN '${startDate}' AND '${endDate}'` 
-      : '';
+    const params = [];
+    let dateFilter = '';
+    if (startDate && endDate) {
+      dateFilter = `WHERE created_at BETWEEN ? AND ?`;
+      params.push(startDate, endDate);
+    }
     
     // Overall recovery metrics
     const overviewQuery = `
@@ -34,11 +37,11 @@ router.get('/overview', async (req, res, next) => {
       ${dateFilter}
     `;
     
-    const overview = await db.query(overviewQuery);
-    
+    const overview = await db.query(overviewQuery, params);
+
     // Success rate by diagnosis
     const successByDiagnosisQuery = `
-      SELECT 
+      SELECT
         diagnosis,
         COUNT(*) as total,
         COUNT(CASE WHEN status = 'resolved' THEN 1 END) as resolved,
@@ -49,12 +52,13 @@ router.get('/overview', async (req, res, next) => {
       GROUP BY diagnosis
       ORDER BY total DESC
     `;
-    
-    const successByDiagnosis = await db.query(successByDiagnosisQuery);
-    
+
+    const successByDiagnosis = await db.query(successByDiagnosisQuery, params);
+
     // Action effectiveness
+    const actionDateFilter = dateFilter.replace('created_at', 'ra.created_at');
     const actionEffectivenessQuery = `
-      SELECT 
+      SELECT
         ra.action_type,
         COUNT(*) as attempts,
         COUNT(CASE WHEN ra.action_status = 'success' THEN 1 END) as successes,
@@ -62,12 +66,12 @@ router.get('/overview', async (req, res, next) => {
         COALESCE(SUM(ra.recovery_amount), 0) as recovered_amount,
         AVG(ra.recovery_amount) as avg_recovery_amount
       FROM recovery_actions ra
-      ${dateFilter.replace('recovery_cases', 'recovery_actions')}
+      ${actionDateFilter}
       GROUP BY ra.action_type
       ORDER BY attempts DESC
     `;
-    
-    const actionEffectiveness = await db.query(actionEffectivenessQuery);
+
+    const actionEffectiveness = await db.query(actionEffectivenessQuery, params);
     
     res.json({
       success: true,
@@ -88,10 +92,15 @@ router.get('/overview', async (req, res, next) => {
 router.get('/by-action', async (req, res, next) => {
   try {
     const { diagnosis } = req.query;
-    const diagnosisFilter = diagnosis ? `AND rc.diagnosis = '${diagnosis}'` : '';
-    
+    const qParams = [];
+    let diagnosisFilter = '';
+    if (diagnosis) {
+      diagnosisFilter = `AND rc.diagnosis = ?`;
+      qParams.push(diagnosis);
+    }
+
     const query = `
-      SELECT 
+      SELECT
         ra.action_type,
         COUNT(*) as total_attempts,
         COUNT(CASE WHEN ra.action_status = 'success' THEN 1 END) as successful,
@@ -107,8 +116,8 @@ router.get('/by-action', async (req, res, next) => {
       GROUP BY ra.action_type
       ORDER BY total_recovered DESC
     `;
-    
-    const results = await db.query(query);
+
+    const results = await db.query(query, qParams);
     
     res.json({
       success: true,
@@ -198,6 +207,43 @@ router.get('/failure-reasons', async (req, res, next) => {
       success: true,
       data: {
         byFailureReason: results
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Get ML insights derived from REAL recovery analytics (no fake accuracy).
+ * Returns diagnosis distribution, action effectiveness, and confidence stats
+ * computed from SQL — never hardcoded model scores.
+ */
+router.get('/ml-insights', async (req, res, next) => {
+  try {
+    const byDiagnosis = await db.query(`
+      SELECT diagnosis, COUNT(*) as count,
+        COUNT(CASE WHEN status='resolved' THEN 1 END) as resolved,
+        COALESCE(SUM(recovered_amount),0) as recovered
+      FROM recovery_cases GROUP BY diagnosis ORDER BY count DESC
+    `);
+    const byAction = await db.query(`
+      SELECT action_type, COUNT(*) as attempts,
+        COUNT(CASE WHEN action_status='success' THEN 1 END) as successes,
+        COALESCE(SUM(recovery_amount),0) as recovered
+      FROM recovery_actions GROUP BY action_type ORDER BY attempts DESC
+    `);
+    const mlPreds = await db.query(`
+      SELECT model_type, COUNT(*) as predictions,
+        AVG(confidence) as avg_confidence
+      FROM ml_predictions GROUP BY model_type
+    `).catch(() => []);
+    res.json({
+      success: true,
+      data: {
+        derivedFrom: 'recovery_analytics',
+        note: 'Insights computed from actual recovery_cases/recovery_actions; not synthetic model scores.',
+        byDiagnosis, byAction, mlPredictions: mlPreds
       }
     });
   } catch (error) {
