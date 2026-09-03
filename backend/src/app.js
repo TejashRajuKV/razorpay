@@ -23,6 +23,7 @@ const recoveryRoutes = require('./routes/recoveryRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const auditRoutes = require('./routes/auditRoutes');
 const simulatorRoutes = require('./routes/simulatorRoutes');
+const campaignRoutes = require('./routes/campaignRoutes');
 
 // Initialize Express app
 const app = express();
@@ -75,13 +76,14 @@ app.get('/health', (req, res) => {
 // API Routes
 const API_VERSION = process.env.API_VERSION || 'v1';
 const apiBase = `/api/${API_VERSION}`;
-
-app.use(`${apiBase}/dashboard`, dashboardRoutes);
-app.use(`${apiBase}/cases`, casesRoutes);
-app.use(`${apiBase}/recovery`, recoveryRoutes);
-app.use(`${apiBase}/analytics`, analyticsRoutes);
-app.use(`${apiBase}/audit`, auditRoutes);
-app.use(`${apiBase}/simulator`, simulatorRoutes);
+// Apply routes
+app.use('/api/v1/dashboard', dashboardRoutes);
+app.use('/api/v1/cases', casesRoutes);
+app.use('/api/v1/recovery', recoveryRoutes);
+app.use('/api/v1/analytics', analyticsRoutes);
+app.use('/api/v1/audit', auditRoutes);
+app.use('/api/v1/simulator', simulatorRoutes);
+app.use('/api/v1/campaigns', campaignRoutes);
 
 // 404 handler
 app.use((req, res) => {

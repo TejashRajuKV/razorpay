@@ -112,7 +112,7 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
 
         <h1 className="hero-title font-serif-title">
           Recover Every Lost Rupee <br />
-          <span className="hero-highlight">On Autopilot.</span>
+          On Autopilot.
         </h1>
 
         <p className="hero-subtitle">
@@ -139,7 +139,7 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
               </>
             ) : (
               <>
-                <PlayCircle size={18} color="#FF6A00" />
+                <PlayCircle size={18} />
                 <span>Run Interactive Batch (50 Cases)</span>
               </>
             )}
@@ -165,7 +165,7 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
           <div className="stat-strip-divider" />
           <div className="stat-strip-item">
             <span className="stat-label">Safety Compliance</span>
-            <span className="stat-val">100% Bounded</span>
+            <span className="stat-val dark">100% Bounded</span>
           </div>
         </div>
       </section>
@@ -486,35 +486,32 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
         /* Hero */
         .hero-section {
           text-align: center;
-          padding: 60px 20px 40px;
-          max-width: 980px;
+          padding: 72px 20px 48px;
+          max-width: 920px;
           margin: 0 auto;
         }
 
         .hero-badge-container {
-          margin-bottom: 24px;
+          margin-bottom: 28px;
         }
 
         .hero-title {
-          font-size: 54px;
-          font-weight: 800;
+          font-family: var(--font-serif);
+          font-size: 64px;
+          font-weight: 400;
           color: var(--text-primary);
-          line-height: 1.12;
-          margin-bottom: 20px;
-        }
-
-        .hero-highlight {
-          background: linear-gradient(135deg, #FF6A00 0%, #FF8A00 50%, #0066FF 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
+          line-height: 1.08;
+          margin-bottom: 24px;
+          letter-spacing: -0.015em;
         }
 
         .hero-subtitle {
-          font-size: 19px;
+          font-size: 18px;
           line-height: 1.6;
           color: var(--text-secondary);
-          max-width: 740px;
-          margin: 0 auto 36px;
+          max-width: 700px;
+          margin: 0 auto 40px;
+          font-weight: 400;
         }
 
         .hero-cta-group {
@@ -522,7 +519,7 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
           align-items: center;
           justify-content: center;
           gap: 16px;
-          margin-bottom: 48px;
+          margin-bottom: 56px;
           flex-wrap: wrap;
         }
 
@@ -530,10 +527,13 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
           display: flex;
           align-items: center;
           justify-content: space-around;
-          padding: 20px 32px;
+          padding: 24px 36px;
           margin: 0 auto;
           max-width: 900px;
-          background: rgba(255, 255, 255, 0.9);
+          background: #FFFFFF;
+          border: 1px solid var(--border-dark);
+          border-radius: var(--radius-xl);
+          box-shadow: 3px 3px 0px #1A1A1A;
         }
 
         .stat-strip-item {
@@ -545,11 +545,12 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
         .stat-strip-divider {
           width: 1px;
           height: 36px;
-          background: var(--border-subtle);
+          background: var(--border-dark);
+          opacity: 0.3;
         }
 
         .stat-label {
-          font-size: 12px;
+          font-size: 11.5px;
           font-weight: 600;
           color: var(--text-muted);
           text-transform: uppercase;
@@ -557,15 +558,16 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
         }
 
         .stat-val {
-          font-family: var(--font-display);
+          font-family: var(--font-body);
           font-size: 22px;
-          font-weight: 800;
+          font-weight: 700;
           color: var(--text-primary);
         }
 
         .stat-val.emerald { color: var(--accent-emerald-dark); }
         .stat-val.orange { color: var(--accent-orange); }
         .stat-val.blue { color: var(--razorpay-blue); }
+        .stat-val.dark { color: var(--text-primary); }
 
         /* Arches Section (Image 2 style) */
         .arches-section {

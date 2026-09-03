@@ -391,10 +391,21 @@ export default function Dashboard({
         <div className="inspector-column">
           <div className="inspector-card porcelain-card">
             {/* Inspector Top Bar */}
-            <div className="inspector-header">
-              <div>
-                <span className="badge badge-orange">Case Inspector</span>
-                <h3 className="inspector-case-id">{activeCase.id}</h3>
+            <div className="inspector-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div>
+                  <span className="badge badge-orange">Case Inspector</span>
+                  <h3 className="inspector-case-id">{activeCase.id}</h3>
+                </div>
+                {onOpenCase && (
+                  <button 
+                    className="btn btn-sm btn-secondary" 
+                    onClick={() => onOpenCase(activeCase.id)}
+                    style={{ padding: '4px 8px', fontSize: '11px' }}
+                  >
+                    View Full Case ↗
+                  </button>
+                )}
               </div>
               <div className="inspector-status-badge">
                 {activeCase.status === 'RECOVERED' ? (

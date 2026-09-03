@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import Header from './components/Header';
 import LandingPage from './pages/LandingPage';
 import Dashboard from './pages/Dashboard';
+import CaseDetails from './pages/CaseDetails';
 import SimulatorPage from './pages/SimulatorPage';
+import CampaignsPage from './pages/CampaignsPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import AuditPage from './pages/AuditPage';
 import apiService from './services/api';
@@ -19,7 +21,9 @@ import {
   Sparkles,
   Layers,
   ArrowRight,
-  Bot
+  Bot,
+  FolderOpen,
+  Target
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -27,8 +31,11 @@ export default function App() {
   // Main view: 'landing' or 'dashboard'
   const [currentView, setCurrentView] = useState('landing');
   
-  // Dashboard Sub-navigation: 'overview', 'simulator', 'analytics', 'audit'
+  // Dashboard Sub-navigation: 'overview', 'cases', 'simulator', 'analytics', 'audit'
   const [dashboardTab, setDashboardTab] = useState('overview');
+
+  // Case drill-down: null = list view, string = case detail view
+  const [drilldownCaseId, setDrilldownCaseId] = useState(null);
 
   // Application Dynamic State
   const [metrics, setMetrics] = useState(INITIAL_METRICS);
@@ -390,6 +397,12 @@ export default function App() {
     }
   };
 
+  // Open the full CaseDetails drill-down for a case.
+  const handleOpenCase = (caseId) => {
+    setDrilldownCaseId(caseId);
+    setDashboardTab('cases');
+  };
+
   return (
     <div className="app-container">
       {/* Top Universal Navigation */}
@@ -418,7 +431,23 @@ export default function App() {
                 onClick={() => setDashboardTab('overview')}
               >
                 <LayoutDashboard size={15} />
-                <span>Command Overview & Cases</span>
+                <span>Command Overview</span>
+              </button>
+
+              <button 
+                className={`console-tab-btn ${dashboardTab === 'cases' ? 'active' : ''}`}
+                onClick={() => { setDashboardTab('cases'); setDrilldownCaseId(null); }}
+              >
+                <FolderOpen size={15} />
+                <span>Recovery Cases</span>
+              </button>
+
+              <button 
+                className={`console-tab-btn ${dashboardTab === 'campaigns' ? 'active' : ''}`}
+                onClick={() => setDashboardTab('campaigns')}
+              >
+                <Target size={15} />
+                <span>AI Campaigns</span>
               </button>
 
               <button 
@@ -426,7 +455,7 @@ export default function App() {
                 onClick={() => setDashboardTab('simulator')}
               >
                 <Cpu size={15} />
-                <span>Interactive Simulator & Batch Engine</span>
+                <span>Simulator & Batch</span>
               </button>
 
               <button 
@@ -434,7 +463,7 @@ export default function App() {
                 onClick={() => setDashboardTab('analytics')}
               >
                 <BarChart3 size={15} />
-                <span>ML & Recovery Analytics</span>
+                <span>ML & Analytics</span>
               </button>
 
               <button 
@@ -442,7 +471,7 @@ export default function App() {
                 onClick={() => setDashboardTab('audit')}
               >
                 <ShieldCheck size={15} />
-                <span>Governance & Audit Logs</span>
+                <span>Audit Logs</span>
               </button>
             </div>
 
@@ -457,7 +486,45 @@ export default function App() {
                 onTriggerBatch={handleTriggerBatch}
                 isBatchRunning={isBatchRunning}
                 onInjectScenario={handleInjectScenario}
+                onOpenCase={handleOpenCase}
               />
+            )}
+
+            {/* Cases tab: list → drill-down */}
+            {dashboardTab === 'cases' && (
+              drilldownCaseId
+                ? (
+                  <CaseDetails
+                    activeCase={cases.find(c => c.id === drilldownCaseId)}
+                    onBack={() => setDrilldownCaseId(null)}
+                    onExecuteRecovery={handleExecuteRecovery}
+                  />
+                ) : (
+                  /* Compact case list when no drill-down selected */
+                  <div className="cases-list-view">
+                    {cases.map(c => (
+                      <button
+                        key={c.id}
+                        className="case-list-row porcelain-card"
+                        onClick={() => setDrilldownCaseId(c.id)}
+                      >
+                        <span className="cl-id">{c.id}</span>
+                        <span className="cl-name">{c.customer.name}</span>
+                        <span className="cl-amount">₹{c.payment.amount.toLocaleString('en-IN')}</span>
+                        <span className="cl-diag">{c.diagnosis.rootCause}</span>
+                        <span
+                          className="cl-status"
+                          style={{
+                            color: c.status === 'RECOVERED' ? '#10B981'
+                              : c.status === 'STOPPED' ? '#EF4444'
+                              : c.status === 'ESCALATED' ? '#8B5CF6'
+                              : '#F59E0B'
+                          }}
+                        >{c.status}</span>
+                      </button>
+                    ))}
+                  </div>
+                )
             )}
 
             {dashboardTab === 'simulator' && (
@@ -468,6 +535,12 @@ export default function App() {
                 isBatchRunning={isBatchRunning}
                 onInjectScenario={handleInjectScenario}
                 onExecuteRecovery={handleExecuteRecovery}
+              />
+            )}
+
+            {dashboardTab === 'campaigns' && (
+              <CampaignsPage 
+                metrics={metrics}
               />
             )}
 
@@ -487,6 +560,31 @@ export default function App() {
       </main>
 
       <style>{`
+        /* Case list view */
+        .cases-list-view {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .case-list-row {
+          display: flex;
+          align-items: center;
+          gap: 20px;
+          padding: 14px 20px;
+          text-align: left;
+          cursor: pointer;
+          border: none;
+          width: 100%;
+          transition: box-shadow var(--transition-fast);
+          font-family: var(--font-body);
+        }
+        .case-list-row:hover { box-shadow: var(--shadow-md); }
+        .cl-id { font-family: var(--font-mono); font-size: 12.5px; font-weight: 700; color: var(--text-muted); min-width: 80px; }
+        .cl-name { font-weight: 600; font-size: 13.5px; color: var(--text-primary); flex: 1; }
+        .cl-amount { font-weight: 700; font-size: 13.5px; color: var(--accent-coral); min-width: 90px; text-align: right; }
+        .cl-diag { font-size: 12px; color: var(--text-secondary); flex: 1; text-align: center; }
+        .cl-status { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; min-width: 100px; text-align: right; }
+
         .merchant-console-layout {
           display: flex;
           flex-direction: column;
@@ -497,10 +595,13 @@ export default function App() {
           display: flex;
           align-items: center;
           gap: 6px;
-          padding: 6px;
+          padding: 5px;
           max-width: 860px;
           margin: 0 auto;
-          box-shadow: var(--shadow-sm);
+          background: #FFFFFF;
+          box-shadow: 2.5px 2.5px 0px #1A1A1A;
+          border: 1px solid var(--border-dark);
+          border-radius: var(--radius-pill);
         }
 
         .console-tab-btn {
@@ -509,9 +610,9 @@ export default function App() {
           gap: 8px;
           padding: 8px 18px;
           background: transparent;
-          border: none;
+          border: 1px solid transparent;
           border-radius: var(--radius-pill);
-          font-family: var(--font-display);
+          font-family: var(--font-body);
           font-size: 13.5px;
           font-weight: 600;
           color: var(--text-secondary);
@@ -521,14 +622,15 @@ export default function App() {
 
         .console-tab-btn:hover {
           color: var(--text-primary);
-          background: rgba(0, 0, 0, 0.03);
+          background: rgba(0, 0, 0, 0.04);
         }
 
         .console-tab-btn.active {
-          background: #FFFFFF;
-          color: var(--accent-orange);
-          box-shadow: 0 4px 12px rgba(120, 90, 50, 0.08);
-          font-weight: 700;
+          background: var(--accent-mint);
+          color: var(--text-primary);
+          border: 1px solid var(--border-dark);
+          box-shadow: 1.5px 1.5px 0px #1A1A1A;
+          font-weight: 600;
         }
 
         @media (max-width: 900px) {
