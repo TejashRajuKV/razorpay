@@ -96,7 +96,7 @@ export default function Dashboard({
     const matchesSearch = 
       c.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.customer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.payment.method.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (c.payment?.method?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
       c.diagnosis.rootCause.toLowerCase().includes(searchQuery.toLowerCase());
 
     if (!matchesSearch) return false;
@@ -369,7 +369,7 @@ export default function Dashboard({
                       <div className="case-row-main">
                         <div className="case-id-group">
                           <span className="case-id-text">{item.id}</span>
-                          <span className="case-method-tag">{item.payment.method}</span>
+                          <span className="case-method-tag">{item.payment?.method}</span>
                           {item.customer.tier === 'VIP_PLATINUM' && (
                             <span className="badge badge-purple">VIP</span>
                           )}

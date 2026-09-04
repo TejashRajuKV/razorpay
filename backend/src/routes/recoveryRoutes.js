@@ -107,7 +107,7 @@ router.post('/run-batch', async (req, res, next) => {
       // Get open cases from database
       const db = require('../config/database');
       const query = `
-        SELECT rc.*, p.failure_reason, p.payment_method, c.total_payments, 
+        SELECT rc.*, p.failure_reason, p.payment_method, p.status AS payment_status, c.total_payments, 
                c.successful_payments, c.risk_score as customer_risk_score
         FROM recovery_cases rc
         JOIN payments p ON rc.payment_id = p.id

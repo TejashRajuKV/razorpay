@@ -160,6 +160,8 @@ function extractDiagnosisFeatures(caseData) {
   return {
     failure_reason: caseData.failure_reason || 'unknown',
     payment_method: caseData.payment_method || 'unknown',
+    payment_status: caseData.payment_status
+      || (caseData.status === 'abandoned' ? 'abandoned' : 'failed'),
     attempt_count: caseData.attempt_number || 1,
     customer_history_length: caseData.total_payments || 0,
     customer_success_rate: (caseData.successful_payments || 0) / Math.max(caseData.total_payments || 0, 1),
@@ -226,19 +228,20 @@ function getFallbackRiskPrediction(paymentData) {
 function getFallbackDiagnosis(caseData) {
   const { failure_reason, total_payments = 1, successful_payments = 0 } = caseData;
   const successRate = successful_payments / total_payments;
-  
+  const paymentStatus = caseData.payment_status || caseData.status;
+
   let diagnosis = 'temporary_failure';
   let confidence = 0.6;
-  
+
   if (failure_reason === 'invalid_upi_id' || failure_reason === 'card_expired') {
     diagnosis = 'data_issue';
     confidence = 0.75;
+  } else if (paymentStatus === 'abandoned') {
+    diagnosis = 'abandonment';
+    confidence = 0.8;
   } else if (successRate < 0.5 && total_payments > 3) {
     diagnosis = 'repeated_failure';
     confidence = 0.7;
-  } else if (caseData.status === 'abandoned') {
-    diagnosis = 'abandonment';
-    confidence = 0.8;
   }
   
   return {
@@ -320,5 +323,8 @@ module.exports = {
   diagnose,
   getRecoveryProbabilities,
   batchPredict,
+  getFallbackRiskPrediction,
+  getFallbackDiagnosis,
+  getFallbackRecoveryProbabilities,
   ML_CONFIG
 };

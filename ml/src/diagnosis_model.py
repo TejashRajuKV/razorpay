@@ -14,6 +14,14 @@ CATEGORIES = [
     'abandonment',
 ]
 
+FAILURE_REASONS = [
+    'insufficient_funds', 'card_expired', 'transaction_timeout',
+    'bank_error', 'declined_by_bank', 'invalid_upi_id',
+    'card_limit_exceeded', 'unknown',
+    # appended last so existing vocabulary indices stay stable
+    'checkout_abandoned',
+]
+
 REASON_DIAGNOSIS_MAP = {
     'insufficient_funds': 'temporary_failure',
     'transaction_timeout': 'temporary_failure',
@@ -22,13 +30,8 @@ REASON_DIAGNOSIS_MAP = {
     'invalid_upi_id': 'data_issue',
     'declined_by_bank': 'temporary_failure',
     'card_limit_exceeded': 'temporary_failure',
+    'checkout_abandoned': 'abandonment',
 }
-
-FAILURE_REASONS = [
-    'insufficient_funds', 'card_expired', 'transaction_timeout',
-    'bank_error', 'declined_by_bank', 'invalid_upi_id',
-    'card_limit_exceeded', 'unknown',
-]
 
 
 def _encode(value, vocabulary):

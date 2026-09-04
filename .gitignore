@@ -27,3 +27,8 @@ build/
 .vscode/
 .idea/
 .DS_Store
+# Local demo/runtime databases
+backend/data/
+*.db
+*.db-shm
+*.db-wal

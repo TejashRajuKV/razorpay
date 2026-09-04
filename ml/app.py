@@ -267,7 +267,7 @@ def evaluate_recovery():
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get('ML_PORT', 5000))
+    port = int(os.environ.get('ML_PORT', 5001))
     debug = os.environ.get('NODE_ENV', 'development') == 'development'
     
     print(f"Starting ML Service on port {port}")

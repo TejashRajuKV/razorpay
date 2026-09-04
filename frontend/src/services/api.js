@@ -45,12 +45,52 @@ export const dashboardAPI = {
 };
 
 /**
+ * Normalize a flat backend case object into the nested shape
+ * expected by Dashboard and other UI components,
+ * while preserving all existing fields for backward compatibility.
+ * Backend provides: customer_name, amount_at_risk, diagnosis (string), etc.
+ * Dashboard expects: item.customer.name, item.customer.tier, item.payment.method, item.payment.amount, item.diagnosis.friendlyName
+ */
+function normalizeCase(backendCase) {
+  const tier = backendCase.tier || 'GOLD';
+  const diagnosisValue = typeof backendCase.diagnosis === 'string'
+    ? backendCase.diagnosis
+    : (backendCase.diagnosis?.friendlyName || backendCase.diagnosis?.rootCause || 'Unknown failure');
+  const normalized = {
+    id: backendCase.id,
+    customer: {
+      name: backendCase.customer_name || '',
+      tier,
+    },
+    payment: {
+      method: backendCase.payment_method || 'UPI',
+      amount: backendCase.amount_at_risk || 0,
+    },
+    diagnosis: {
+      friendlyName: diagnosisValue,
+      rootCause: diagnosisValue,
+    },
+    status: backendCase.status || 'DETECTED',
+    recoveryAmount: backendCase.recoveredAmount || 0,
+  };
+  return { ...backendCase, ...normalized };
+}
+
+/**
  * Cases API endpoints
  */
 export const casesAPI = {
   getAllCases: (filters = {}) => {
     const params = new URLSearchParams(filters).toString();
-    return apiRequest(`/cases${params ? `?${params}` : ''}`);
+    const raw = apiRequest(`/cases${params ? `?${params}` : ''}`);
+    if (!raw?.success || !raw?.data?.cases) return { success: false };
+    return {
+      success: true,
+      data: {
+        cases: raw.data.cases.map(normalizeCase),
+        count: raw.data.count,
+      },
+    };
   },
   getCaseById: (caseId) => apiRequest(`/cases/${caseId}`),
   getDecisionPreview: (caseId) => apiRequest(`/cases/${caseId}/decision-preview`),

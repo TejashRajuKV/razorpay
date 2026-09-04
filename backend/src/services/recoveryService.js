@@ -247,7 +247,7 @@ async function decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnos
 async function executeRecoveryAction(caseId, actionType, context = {}) {
   // Fetch case details
   const caseQuery = `
-    SELECT rc.*, p.payment_method, p.failure_reason, c.email, c.phone
+    SELECT rc.*, p.payment_method, p.failure_reason, p.status AS payment_status, c.email, c.phone
     FROM recovery_cases rc
     JOIN payments p ON rc.payment_id = p.id
     JOIN customers c ON rc.customer_id = c.id
@@ -487,7 +487,7 @@ async function updateCaseStatus(caseId, status, recoveredAmount = 0) {
  */
 async function getRecoveryCase(caseId) {
   const query = `
-    SELECT rc.*, p.payment_method, p.failure_reason, c.name as customer_name, c.email, c.phone
+    SELECT rc.*, p.payment_method, p.failure_reason, p.status AS payment_status, c.name as customer_name, c.email, c.phone
     FROM recovery_cases rc
     JOIN payments p ON rc.payment_id = p.id
     JOIN customers c ON rc.customer_id = c.id
