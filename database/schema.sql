@@ -81,6 +81,23 @@ CREATE TABLE IF NOT EXISTS ml_predictions (
     FOREIGN KEY (case_id) REFERENCES recovery_cases(id) ON DELETE SET NULL
 );
 
+-- Customer responses table: Inbound customer replies with detected intent and
+-- promise-to-pay lifecycle (NONE | PROMISED | FULFILLED | MISSED | CANCELLED).
+-- Written ONLY by the customer-response flow; never executes recovery actions.
+CREATE TABLE IF NOT EXISTS customer_responses (
+    id VARCHAR(36) PRIMARY KEY,
+    case_id VARCHAR(36) NOT NULL,
+    message TEXT,
+    intent VARCHAR(50) NOT NULL, -- 'promise_to_pay', 'payment_link_request', 'already_paid', 'refusal', 'human_help', 'unclear'
+    confidence DECIMAL(5, 4) DEFAULT 0.0000,
+    promised_at TIMESTAMP,
+    promise_status VARCHAR(20) DEFAULT 'NONE',
+    follow_up_required INT DEFAULT 0,
+    follow_up_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (case_id) REFERENCES recovery_cases(id) ON DELETE CASCADE
+);
+
 -- Audit logs table: Immutable event history
 CREATE TABLE IF NOT EXISTS audit_logs (
     id VARCHAR(36) PRIMARY KEY,
@@ -117,3 +134,4 @@ CREATE INDEX IF NOT EXISTS idx_recovery_cases_customer ON recovery_cases(custome
 CREATE INDEX IF NOT EXISTS idx_recovery_actions_case ON recovery_actions(case_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_customer_responses_case ON customer_responses(case_id);
