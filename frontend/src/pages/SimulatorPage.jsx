@@ -22,6 +22,7 @@ import {
   CreditCard
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { resolveScenarioCase } from '../services/scenarios';
 
 export default function SimulatorPage({
   metrics,
@@ -55,13 +56,12 @@ export default function SimulatorPage({
   const handleSelectScenario = (scenarioKey) => {
     onInjectScenario(scenarioKey);
     setDebugStep(1);
-    const targetCase = cases.find(c => 
-      scenarioKey === 'RAHUL_UPI' ? c.id === 'REC-1042' :
-      scenarioKey === 'PRIYA_CARD' ? c.id === 'REC-1043' :
-      scenarioKey === 'VIKRAM_ENTERPRISE' ? c.id === 'REC-1045' : c.id === 'REC-1046'
-    ) || cases[0];
+    const targetCase = resolveScenarioCase(scenarioKey, cases);
 
-    if (!targetCase) return;
+    if (!targetCase) {
+      setDebugLog([`No loaded backend case matches scenario ${scenarioKey}.`]);
+      return;
+    }
     setDebugCase(targetCase);
     setDebugLog([
       `Injected scenario: ${targetCase.customer.name} (${targetCase.id})`,
@@ -84,14 +84,18 @@ export default function SimulatorPage({
       setDebugLog(prev => [...prev, `[Step 4: Safety Check] Guardrails evaluated. Retries: ${debugCase.guardrails.retriesUsed}/3, Cooldown: OK. STATUS: ${debugCase.guardrails.status}.`]);
       setDebugStep(4);
     } else if (debugStep === 4) {
-      const result = onExecuteRecovery(debugCase.id, debugCase.decision.recommendedAction);
-      if (result && result.recovered) {
-        setDebugLog(prev => [...prev, `[Step 5: Execution & Measurement] SUCCESS! Payment confirmed settled for ${formatINR(result.amount)}.`]);
-        confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } });
-      } else if (result && result.stopped) {
-        setDebugLog(prev => [...prev, `[Step 5: Execution] Stopped by safety rule: ${result.reason}`]);
-      } else {
-        setDebugLog(prev => [...prev, `[Step 5: Execution] Action completed and status updated.`]);
+      try {
+        const result = await onExecuteRecovery(debugCase.id, debugCase.decision.recommendedAction);
+        if (result && result.recovered) {
+          setDebugLog(prev => [...prev, `[Step 5: Execution & Measurement] SUCCESS! Payment confirmed settled for ${formatINR(result.amount)}.`]);
+          confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } });
+        } else if (result && (result.stopped || result.blocked)) {
+          setDebugLog(prev => [...prev, `[Step 5: Execution] Stopped by safety rule: ${result.reason}`]);
+        } else {
+          setDebugLog(prev => [...prev, `[Step 5: Execution] Action completed and status updated.`]);
+        }
+      } catch (err) {
+        setDebugLog(prev => [...prev, `[Step 5: Execution] Failed: ${err?.message || 'backend request failed'}`]);
       }
       setDebugStep(5);
     } else if (debugStep === 5) {
@@ -155,29 +159,29 @@ export default function SimulatorPage({
             <div className="scenario-selector-box">
               <span className="scenario-label">Select Injected Scenario:</span>
               <div className="scenario-btn-grid">
-                <button 
-                  className={`scenario-btn ${debugCase.id === 'REC-1042' ? 'active' : ''}`}
+                <button
+                  className={`scenario-btn ${resolveScenarioCase('RAHUL_UPI', cases)?.id === debugCase?.id ? 'active' : ''}`}
                   onClick={() => handleSelectScenario('RAHUL_UPI')}
                 >
                   <Zap size={14} color="#FF6A00" />
-                  <span>Rahul (₹25k UPI Timeout)</span>
+                  <span>Rahul (UPI Timeout)</span>
                 </button>
-                <button 
-                  className={`scenario-btn ${debugCase.id === 'REC-1043' ? 'active' : ''}`}
+                <button
+                  className={`scenario-btn ${resolveScenarioCase('PRIYA_CARD', cases)?.id === debugCase?.id ? 'active' : ''}`}
                   onClick={() => handleSelectScenario('PRIYA_CARD')}
                 >
                   <CreditCard size={14} color="#0066FF" />
-                  <span>Priya (₹4.8k 3DS Drop)</span>
+                  <span>Priya (Card Payment Drop)</span>
                 </button>
-                <button 
-                  className={`scenario-btn ${debugCase.id === 'REC-1045' ? 'active' : ''}`}
+                <button
+                  className={`scenario-btn ${resolveScenarioCase('VIKRAM_ENTERPRISE', cases)?.id === debugCase?.id ? 'active' : ''}`}
                   onClick={() => handleSelectScenario('VIKRAM_ENTERPRISE')}
                 >
                   <Building size={14} color="#8B5CF6" />
-                  <span>Vikram (₹1.45L High Value)</span>
+                  <span>Vikram (High Value Case)</span>
                 </button>
-                <button 
-                  className={`scenario-btn ${debugCase.id === 'REC-1046' ? 'active' : ''}`}
+                <button
+                  className={`scenario-btn ${resolveScenarioCase('KUNAL_RISK', cases)?.id === debugCase?.id ? 'active' : ''}`}
                   onClick={() => handleSelectScenario('KUNAL_RISK')}
                 >
                   <AlertTriangle size={14} color="#EF4444" />

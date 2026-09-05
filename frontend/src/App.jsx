@@ -3,6 +3,7 @@ import Header from './components/Header';
 import LandingPage from './pages/LandingPage';
 import Dashboard from './pages/Dashboard';
 import CaseDetail from './pages/CaseDetail';
+import { resolveScenarioCase } from './services/scenarios';
 import SimulatorPage from './pages/SimulatorPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import AuditPage from './pages/AuditPage';
@@ -51,6 +52,25 @@ export default function App() {
   const [loadingFromBackend, setLoadingFromBackend] = useState(false);
   const [backendError, setBackendError] = useState(null);
 
+  // Deep-link support: #/cases/:id opens the investigation page,
+  // browser back/forward works via hashchange (no router dependency)
+  useEffect(() => {
+    const syncHashToCase = () => {
+      const match = (window.location.hash || '').match(/^#\/cases\/([\w-]+)/);
+      if (match) {
+        setSelectedCaseId(match[1]);
+        setInvestigatingCaseId(match[1]);
+        setCurrentView('dashboard');
+        setDashboardTab('overview');
+      } else {
+        setInvestigatingCaseId(null);
+      }
+    };
+    syncHashToCase();
+    window.addEventListener('hashchange', syncHashToCase);
+    return () => window.removeEventListener('hashchange', syncHashToCase);
+  }, []);
+
   // Check backend connection on mount
   useEffect(() => {
     const checkBackendConnection = async () => {
@@ -61,6 +81,8 @@ export default function App() {
         
         // Optionally fetch initial data from backend
         await loadInitialDataFromBackend();
+        // Settle overdue promises globally so MISSED fires without anyone reading records
+        apiService.simulator.checkOverduePromises().catch(() => {});
       } catch (error) {
         setBackendConnected(false);
         setBackendError('Backend unavailable — start the server. No data is shown.');
@@ -240,18 +262,16 @@ export default function App() {
     setIsBatchRunning(false);
   };
 
-  // Scenario injection is a frontend-only demo helper (no backend endpoint)
+  // Scenario injection is a frontend-only demo helper (no backend endpoint):
+  // it selects a real loaded backend case matching the scenario's intent.
   const handleInjectScenario = async (scenarioKey) => {
     setCurrentView('dashboard');
-    if (scenarioKey === 'RAHUL_UPI') {
-      setSelectedCaseId('REC-1042');
-    } else if (scenarioKey === 'PRIYA_CARD') {
-      setSelectedCaseId('REC-1043');
-    } else if (scenarioKey === 'VIKRAM_ENTERPRISE') {
-      setSelectedCaseId('REC-1045');
-    } else if (scenarioKey === 'KUNAL_RISK') {
-      setSelectedCaseId('REC-1046');
+    const target = resolveScenarioCase(scenarioKey, cases);
+    if (!target) {
+      setBackendError(`No loaded backend case matches scenario ${scenarioKey} — nothing selected.`);
+      return;
     }
+    setSelectedCaseId(target.id);
   };
 
   return (
@@ -282,11 +302,12 @@ export default function App() {
 
       <main className="main-content">
         {currentView === 'landing' ? (
-          <LandingPage 
+          <LandingPage
             onLaunchConsole={() => setCurrentView('dashboard')}
             onTriggerBatch={handleTriggerBatch}
             isBatchRunning={isBatchRunning}
             metrics={metrics}
+            cases={cases}
           />
         ) : (
           <div className="merchant-console-layout">
@@ -329,7 +350,7 @@ export default function App() {
             {dashboardTab === 'overview' && investigatingCaseId && (
               <CaseDetail
                 caseId={investigatingCaseId}
-                onBack={() => setInvestigatingCaseId(null)}
+                onBack={() => { window.location.hash = '#/'; }}
                 onExecuteRecovery={handleExecuteRecovery}
               />
             )}
@@ -339,7 +360,7 @@ export default function App() {
                 cases={cases}
                 selectedCaseId={selectedCaseId}
                 setSelectedCaseId={setSelectedCaseId}
-                onOpenCase={(id) => { setSelectedCaseId(id); setInvestigatingCaseId(id); }}
+                onOpenCase={(id) => { window.location.hash = `#/cases/${id}`; }}
                 onExecuteRecovery={handleExecuteRecovery}
                 onTriggerBatch={handleTriggerBatch}
                 isBatchRunning={isBatchRunning}

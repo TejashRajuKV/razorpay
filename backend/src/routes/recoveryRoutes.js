@@ -411,6 +411,20 @@ router.post('/admin/release-all', async (req, res, next) => {
 });
 
 /**
+ * Sweep overdue promises: PROMISED past due (+grace) becomes MISSED.
+ * POST /api/v1/recovery/check-overdue-promises
+ */
+router.post('/check-overdue-promises', async (req, res, next) => {
+  try {
+    const customerResponseService = require('../services/customerResponseService');
+    const result = await customerResponseService.settleAllDuePromises();
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * Recovery ROI from recorded outcomes (simulated action costs labeled as such)
  * GET /api/v1/recovery/roi
  */

@@ -554,6 +554,22 @@ async function isGlobalStopActive() {
 }
 
 /**
+ * Human-escalation predicate: high value + genuinely low MODEL confidence.
+ * Confidence here is diagnosis/ML confidence only — never priority_score,
+ * risk probability, or recovery probability.
+ */
+function computeHumanEscalation(recoveryCase = {}) {
+  const amount = parseFloat(recoveryCase.amount_at_risk ?? recoveryCase.amountAtRisk ?? 0);
+  const hasGenuineConfidence = recoveryCase.diagnosis_confidence !== undefined
+    || recoveryCase.diagnosisConfidence !== undefined
+    || recoveryCase.confidence !== undefined
+    || recoveryCase.ml_confidence !== undefined
+    || recoveryCase.mlConfidence !== undefined;
+  const conf = hasGenuineConfidence ? getRecoveryConfidence(recoveryCase) : 1;
+  return amount > CONFIG.HIGH_VALUE_THRESHOLD && conf < CONFIG.LOW_CONFIDENCE_THRESHOLD;
+}
+
+/**
  * Check stopping rules before executing an action (backend-enforced).
  */
 async function checkStoppingRules(recoveryCase, actionType) {
@@ -575,14 +591,8 @@ async function checkStoppingRules(recoveryCase, actionType) {
     return { allowed: false, reason: `Recovery probability too low (${prob.toFixed(2)}) — stopping` };
   }
   // High-value + low-confidence escalation (genuine ML confidence only, never priority_score)
-  const amount = parseFloat(recoveryCase.amount_at_risk ?? recoveryCase.amountAtRisk ?? 0);
-  const hasGenuineConfidence = recoveryCase.diagnosis_confidence !== undefined
-    || recoveryCase.diagnosisConfidence !== undefined
-    || recoveryCase.confidence !== undefined
-    || recoveryCase.ml_confidence !== undefined
-    || recoveryCase.mlConfidence !== undefined;
-  const conf = hasGenuineConfidence ? getRecoveryConfidence(recoveryCase) : 1;
-  if (amount > CONFIG.HIGH_VALUE_THRESHOLD && conf < CONFIG.LOW_CONFIDENCE_THRESHOLD && actionType !== 'escalate' && actionType !== 'stop') {
+  if (computeHumanEscalation(recoveryCase) && actionType !== 'escalate' && actionType !== 'stop') {
+    const amount = parseFloat(recoveryCase.amount_at_risk ?? recoveryCase.amountAtRisk ?? 0);
     return { allowed: false, reason: `High-value (₹${amount}) + low-confidence — human escalation required`, humanEscalation: true };
   }
   // Check maximum retry attempts
@@ -624,7 +634,7 @@ async function checkStoppingRules(recoveryCase, actionType) {
     };
   }
 
-  return { allowed: true, humanEscalation: false };
+  return { allowed: true, humanEscalation: computeHumanEscalation(recoveryCase) };
 }
 
 async function evaluateActionPolicy(recoveryCase, actionType, diagnosisInfo = {}) {
@@ -635,11 +645,7 @@ async function evaluateActionPolicy(recoveryCase, actionType, diagnosisInfo = {}
   }
   const result = await checkStoppingRules(merged, actionType);
   if (result.humanEscalation === undefined) {
-    const amount = parseFloat(merged.amount_at_risk ?? merged.amountAtRisk ?? 0);
-    const hasConf = merged.diagnosis_confidence !== undefined || merged.confidence !== undefined
-      || diagnosisInfo?.confidence !== undefined;
-    const conf = hasConf ? getRecoveryConfidence(merged, diagnosisInfo) : 1;
-    result.humanEscalation = amount > CONFIG.HIGH_VALUE_THRESHOLD && conf < CONFIG.LOW_CONFIDENCE_THRESHOLD;
+    result.humanEscalation = computeHumanEscalation(merged);
   }
   if (result.reason === undefined) result.reason = null;
   return result;
@@ -723,7 +729,8 @@ async function getRecoveryCases(filters = {}) {
   const query = `
     SELECT rc.*, c.name as customer_name, c.email,
       p.payment_method, p.status AS payment_status, p.failure_reason,
-      p.amount AS payment_amount, p.id AS payment_id
+      p.amount AS payment_amount, p.id AS payment_id,
+      p.created_at AS payment_date
     FROM recovery_cases rc
     JOIN customers c ON rc.customer_id = c.id
     LEFT JOIN payments p ON rc.payment_id = p.id
@@ -819,6 +826,7 @@ module.exports = {
   getPriorityScore,
   isQuietHours,
   isGlobalStopActive,
+  computeHumanEscalation,
   idempotencyKey,
   CONTACT_ACTIONS,
   CONFIG

@@ -11,32 +11,38 @@ import {
   ArrowUpRight,
   Activity
 } from 'lucide-react';
-import { ACTION_CONVERSION_ANALYTICS, ROOT_CAUSE_BREAKDOWN } from '../data/mockData';
 import { analyticsAPI } from '../services/api';
 
 export default function AnalyticsPage({ metrics }) {
   const [advanced, setAdvanced] = useState(null);
   const [alerts, setAlerts] = useState(null);
   const [strategyComparison, setStrategyComparison] = useState(null);
+  const [overview, setOverview] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [advRes, alertRes, stratRes] = await Promise.all([
+        const [advRes, alertRes, stratRes, ovRes] = await Promise.all([
           analyticsAPI.getAdvanced(),
           analyticsAPI.getAlerts(),
           analyticsAPI.getStrategyComparison().catch(() => null),
+          analyticsAPI.getOverview().catch(() => null),
         ]);
         if (!cancelled) {
           if (advRes?.success) setAdvanced(advRes.data);
           if (alertRes?.success) setAlerts(alertRes.data);
           if (stratRes?.success) setStrategyComparison(stratRes.data);
+          if (ovRes?.success) setOverview(ovRes.data);
         }
       } catch { /* backend unavailable — sections below render only with live data */ }
     })();
     return () => { cancelled = true; };
   }, []);
+
+  const liveActions = overview?.actionEffectiveness || [];
+  const liveDiagnoses = overview?.successByDiagnosis || [];
+  const totalDiagnosed = liveDiagnoses.reduce((s, d) => s + (Number(d.total) || 0), 0);
 
   const formatINR = (val) => {
     return new Intl.NumberFormat('en-IN', {
@@ -95,6 +101,9 @@ export default function AnalyticsPage({ metrics }) {
         <div className="porcelain-card" style={{ padding: 16 }}>
           <span className="ml-label">Model evaluation (train/test): </span>
           <span>Acc {metrics.mlAccuracy}% · F1 {metrics.mlF1Score} · AUC {metrics.mlRocAuc}</span>
+          <p className="metrics-note" style={{ color: '#cc6600', fontSize: 12, marginTop: 8 }}>
+            ⚠ Trained on synthetic data. Metrics are demonstration values, not production evidence.
+          </p>
         </div>
       ) : (
         <div className="porcelain-card" style={{ padding: 16, fontSize: 13 }}>
@@ -199,6 +208,7 @@ export default function AnalyticsPage({ metrics }) {
           </div>
 
           <div className="channel-table-container">
+            {liveActions.length > 0 ? (
             <table className="custom-table">
               <thead>
                 <tr>
@@ -210,24 +220,29 @@ export default function AnalyticsPage({ metrics }) {
                 </tr>
               </thead>
               <tbody>
-                {ACTION_CONVERSION_ANALYTICS.map((item, idx) => (
+                {liveActions.map((item, idx) => (
                   <tr key={idx}>
-                    <td className="font-weight-600">{item.action}</td>
+                    <td className="font-weight-600">{item.action_type}</td>
                     <td>{item.attempts}</td>
                     <td>{item.successes}</td>
                     <td>
                       <div className="rate-cell">
-                        <span className="rate-number">{item.rate}%</span>
+                        <span className="rate-number">{Number(item.success_rate || 0).toFixed(1)}%</span>
                         <div className="rate-bar-bg">
-                          <div className="rate-bar-fill" style={{ width: `${item.rate}%` }} />
+                          <div className="rate-bar-fill" style={{ width: `${Math.min(100, Number(item.success_rate) || 0)}%` }} />
                         </div>
                       </div>
                     </td>
-                    <td className="font-mono font-weight-700 emerald-text">{formatINR(item.revenue)}</td>
+                    <td className="font-mono font-weight-700 emerald-text">{formatINR(Number(item.recovered_amount) || 0)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            ) : (
+              <p className="card-sub" style={{ padding: '12px 0' }}>
+                No action data from backend yet — execute recovery actions first. No data is shown.
+              </p>
+            )}
           </div>
         </div>
 
@@ -241,27 +256,33 @@ export default function AnalyticsPage({ metrics }) {
           </div>
 
           <div className="cause-list">
-            {ROOT_CAUSE_BREAKDOWN.map((cause, idx) => (
+            {liveDiagnoses.length > 0 ? liveDiagnoses.map((cause, idx) => {
+              const pct = totalDiagnosed > 0 ? (Number(cause.total) / totalDiagnosed) * 100 : 0;
+              return (
               <div key={idx} className="cause-item">
                 <div className="cause-row-top">
-                  <span className="cause-name">{cause.cause}</span>
-                  <span className="cause-pct">{cause.percentage}% of all failures</span>
+                  <span className="cause-name">{cause.diagnosis}</span>
+                  <span className="cause-pct">{pct.toFixed(1)}% of all failures</span>
                 </div>
                 <div className="cause-bar-bg">
-                  <div 
-                    className="cause-bar-fill" 
-                    style={{ 
-                      width: `${cause.percentage * 2}%`,
-                      backgroundColor: cause.color 
-                    }} 
+                  <div
+                    className="cause-bar-fill"
+                    style={{
+                      width: `${Math.min(100, pct * 2)}%`,
+                    }}
                   />
                 </div>
                 <div className="cause-footer">
-                  <span>Count: {cause.count} cases</span>
-                  <span className="recoverability">Avg Recoverability: <strong>{cause.avgRecoveryRate}%</strong></span>
+                  <span>Count: {cause.total} cases</span>
+                  <span className="recoverability">Avg Recoverability: <strong>{Number(cause.success_rate || 0).toFixed(1)}%</strong></span>
                 </div>
               </div>
-            ))}
+              );
+            }) : (
+              <p className="card-sub" style={{ padding: '12px 0' }}>
+                No diagnosis data from backend yet. No data is shown.
+              </p>
+            )}
           </div>
         </div>
       </div>

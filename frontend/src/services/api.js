@@ -52,24 +52,46 @@ export const dashboardAPI = {
  * Dashboard expects: item.customer.name, item.customer.tier, item.payment.method, item.payment.amount, item.diagnosis.friendlyName
  */
 function normalizeCase(backendCase) {
-  const tier = backendCase.tier || 'GOLD';
+  const tier = backendCase.tier || backendCase.customer?.tier || 'GOLD';
   const diagnosisValue = typeof backendCase.diagnosis === 'string'
     ? backendCase.diagnosis
     : (backendCase.diagnosis?.friendlyName || backendCase.diagnosis?.rootCause || 'Unknown failure');
   const normalized = {
     id: backendCase.id,
     customer: {
-      name: backendCase.customer_name || '',
+      name: backendCase.customer_name || backendCase.customer?.name || '',
       tier,
+      email: backendCase.email || backendCase.customer?.email || '',
+      phone: backendCase.phone || backendCase.customer?.phone || '',
+      historicalSuccessRate: backendCase.customer?.historicalSuccessRate || 0,
+      lifetimeValue: backendCase.customer?.lifetimeValue || 0,
     },
     payment: {
-      method: backendCase.payment_method || backendCase.paymentMethod || 'UNKNOWN',
-      amount: backendCase.amount_at_risk || 0,
+      method: backendCase.payment_method || backendCase.payment?.method || backendCase.paymentMethod || 'UNKNOWN',
+      amount: backendCase.amount_at_risk ?? backendCase.payment?.amount ?? 0,
     },
     diagnosis: {
       friendlyName: diagnosisValue,
       rootCause: diagnosisValue,
+      description: backendCase.diagnosis?.description || diagnosisValue,
+      confidence: backendCase.diagnosis?.confidence ?? backendCase.diagnosis_confidence ?? 0,
+      factors: backendCase.diagnosis?.factors || [],
     },
+    decision: backendCase.decision || {
+      actionLabel: 'Pending assessment',
+      recoveryProbability: 0,
+      channel: 'pending',
+      expectedRecoveryValue: 0,
+      recommendedAction: '',
+    },
+    guardrails: backendCase.guardrails || {
+      retriesUsed: 0,
+      maxRetriesAllowed: 3,
+      isCooldownSatisfied: true,
+      status: '',
+      stoppingRuleHit: '',
+    },
+    history: backendCase.history || [],
     status: backendCase.status || 'DETECTED',
     recoveryAmount: backendCase.recoveredAmount || 0,
   };
@@ -115,6 +137,7 @@ const normalizeActionName = (frontendAction) => {
     SEND_REMINDER: 'reminder',
     SWITCH_PAYMENT_METHOD: 'payment_link',
     ESCALATE_HUMAN_REVIEW: 'escalate',
+    APPROVE_HUMAN_RECOVERY: 'escalate',
     STOP_RECOVERY: 'stop',
   };
   return mapping[frontendAction] || frontendAction;
@@ -125,11 +148,16 @@ const normalizeActionName = (frontendAction) => {
  * Backend case detail already contains actions array.
  */
 export const recoveryAPI = {
-  executeAction: (caseId, actionType) =>
-    apiRequest(`/cases/${caseId}/action`, {
+  executeAction: (caseId, actionType) => {
+    const backendAction = normalizeActionName(actionType);
+    if (!backendAction) {
+      return Promise.reject(new Error('No recommended action available for this case yet — open the investigation for an AI assessment first.'));
+    }
+    return apiRequest(`/cases/${caseId}/action`, {
       method: 'POST',
-      body: JSON.stringify({ actionType: normalizeActionName(actionType) }),
-    }),
+      body: JSON.stringify({ actionType: backendAction }),
+    });
+  },
   getRecoveryHistory: async (caseId) => {
     const res = await apiRequest(`/cases/${caseId}`);
     return res?.data?.actions || res?.data || [];
@@ -195,6 +223,8 @@ export const simulatorAPI = {
       method: 'POST',
       body: JSON.stringify({ limit: 50, ...payload }),
     }),
+  checkOverduePromises: () =>
+    apiRequest('/recovery/check-overdue-promises', { method: 'POST' }),
   injectScenario: async (scenarioKey) => {
     console.warn('[simulator] injectScenario is frontend-only demo helper, no backend call:', scenarioKey);
     return { success: true, demoOnly: true, scenarioKey };

@@ -36,9 +36,16 @@ This project implements a complete **Detect → Diagnose → Decide → Act → 
 ## Quick Start
 
 ### Prerequisites
-- Node.js >= 18.0.0
+- Node.js 18 LTS or 20 LTS (**not Node 24** — better-sqlite3 native bindings
+  break on Node 24, which skips all DB-backed Jest suites; verified symptom:
+  `better_sqlite3.node is not a valid Win32 application`)
 - Python >= 3.9
 - npm or yarn
+
+> **Test note:** 2 suites skip when SQLite bindings cannot load (no valid
+> `better-sqlite3` binary for the running Node version). They pass on
+> Node 20 LTS after `npm rebuild better-sqlite3`. Run serially on
+> memory-constrained hosts: `npm test -- --runInBand`.
 
 ### Backend Setup
 

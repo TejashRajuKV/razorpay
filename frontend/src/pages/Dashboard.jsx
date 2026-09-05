@@ -127,24 +127,28 @@ export default function Dashboard({
   const handleRunAction = async (caseId, actionType) => {
     setIsExecutingAction(true);
     setExecutionMessage(`Executing bounded action: ${actionType}...`);
-    
+
     // Simulate slight latency
     await new Promise(r => setTimeout(r, 900));
-    
-    const result = onExecuteRecovery(caseId, actionType);
-    setIsExecutingAction(false);
-    
-    if (result && result.recovered) {
-      setExecutionMessage(`Success! Recovered ${formatINR(result.amount)} from ${result.customerName}`);
-      confetti({
-        particleCount: 80,
-        spread: 70,
-        origin: { y: 0.6 }
-      });
-    } else if (result && result.stopped) {
-      setExecutionMessage(`Case halted by safety policy: ${result.reason}`);
-    } else {
-      setExecutionMessage(`Action completed. Status updated.`);
+
+    try {
+      const result = await onExecuteRecovery(caseId, actionType);
+      if (result && result.recovered) {
+        setExecutionMessage(`Success! Recovered ${formatINR(result.amount)} from ${result.customerName}`);
+        confetti({
+          particleCount: 80,
+          spread: 70,
+          origin: { y: 0.6 }
+        });
+      } else if (result && (result.stopped || result.blocked)) {
+        setExecutionMessage(`Case halted by safety policy: ${result.reason}`);
+      } else {
+        setExecutionMessage(`Action completed. Status updated.`);
+      }
+    } catch (err) {
+      setExecutionMessage(`Action failed: ${err?.message || 'backend request failed'}`);
+    } finally {
+      setIsExecutingAction(false);
     }
 
     setTimeout(() => setExecutionMessage(null), 5000);
@@ -200,7 +204,7 @@ export default function Dashboard({
                 onClick={() => onInjectScenario('RAHUL_UPI')}
               >
                 <Zap size={15} color="#FF6A00" />
-                <span>Inject ₹25k UPI Failure (REC-1042)</span>
+                <span>Inject UPI Failure</span>
               </button>
 
               <button 
@@ -208,7 +212,7 @@ export default function Dashboard({
                 onClick={() => onInjectScenario('VIKRAM_ENTERPRISE')}
               >
                 <Building size={15} color="#0066FF" />
-                <span>Inject ₹1.45L High Value (REC-1045)</span>
+                <span>Inject High Value Case</span>
               </button>
             </div>
           </div>
@@ -426,7 +430,14 @@ export default function Dashboard({
                         </div>
                       </div>
 
-                      <ChevronRight size={18} color="#94A3B8" className="row-arrow" />
+                      <button
+                        aria-label={`Open investigation for ${item.id}`}
+                        title="Open investigation"
+                        onClick={(e) => { e.stopPropagation(); if (onOpenCase) onOpenCase(item.id); }}
+                        style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, display: 'flex' }}
+                      >
+                        <ChevronRight size={18} color="#94A3B8" className="row-arrow" />
+                      </button>
                     </div>
                   );
                 })

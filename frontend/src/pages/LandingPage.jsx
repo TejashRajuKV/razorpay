@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   ArrowRight, 
   Sparkles, 
@@ -27,7 +27,34 @@ import {
 } from 'lucide-react';
 
 import Footer from '../components/Footer';
-export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRunning, metrics }) {
+import { casesAPI, auditAPI } from '../services/api';
+export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRunning, metrics, cases = [] }) {
+  // Live showcase case: highest amount at risk from real backend data (never hardcoded)
+  const showcaseCase = (Array.isArray(cases) && cases.length > 0)
+    ? [...cases].sort((a, b) => (
+      (Number(b.amount_at_risk ?? b.payment?.amount ?? 0) || 0) -
+      (Number(a.amount_at_risk ?? a.payment?.amount ?? 0) || 0)
+    ))[0]
+    : null;
+  const [showcaseDecision, setShowcaseDecision] = useState(null);
+  const [showcaseAudit, setShowcaseAudit] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    setShowcaseDecision(null);
+    setShowcaseAudit(null);
+    if (!showcaseCase?.id) return undefined;
+    (async () => {
+      try {
+        const preview = await casesAPI.getDecisionPreview(showcaseCase.id).catch(() => null);
+        const trail = await auditAPI.getAuditTrail(showcaseCase.id).catch(() => null);
+        if (!cancelled) {
+          if (preview?.success) setShowcaseDecision(preview.data);
+          if (trail?.success) setShowcaseAudit(trail.data);
+        }
+      } catch { /* showcase panel falls back to row-level case data */ }
+    })();
+    return () => { cancelled = true; };
+  }, [showcaseCase?.id]);
   // Video Player State
   const videoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(true);
@@ -507,58 +534,83 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
                   {loopSteps[activeLoopStep].icon}
                 </div>
                 <div className="visual-case-simulation">
+                  {(() => {
+                    if (!showcaseCase) {
+                      return (
+                        <div className="sim-body">
+                          <div className="sim-step-view">
+                            <div className="sim-log-item">No live case data — connect the backend to walk a real recovery loop here.</div>
+                          </div>
+                        </div>
+                      );
+                    }
+                    const scAmount = Number(showcaseCase.amount_at_risk ?? showcaseCase.payment?.amount ?? 0) || 0;
+                    const scName = showcaseCase.customer_name || showcaseCase.customer?.name || '—';
+                    const scReason = showcaseCase.failure_reason || 'unknown';
+                    const scPriority = showcaseCase.priority_score ?? showcaseCase.priorityScore;
+                    const scDiag = showcaseDecision?.diagnosis?.diagnosis
+                      || (typeof showcaseCase.diagnosis === 'string' ? showcaseCase.diagnosis : showcaseCase.diagnosis?.rootCause)
+                      || 'unknown';
+                    const scConf = showcaseDecision?.diagnosis?.confidence ?? showcaseCase.diagnosis_confidence ?? null;
+                    const scDecision = showcaseDecision?.decision || {};
+                    const scAction = scDecision.action || showcaseCase.recommended_action || 'pending assessment';
+                    const scProb = scDecision.probability;
+                    const scExpected = scDecision.expectedRecovery;
+                    const scGate = scAmount > 50000 ? 'Human Gate Triggered (> ₹50k)' : '< ₹50k Autonomous Limit';
+                    const scEscalated = scDecision.guardrails?.humanEscalation ? ' (escalated to human review)' : '';
+                    const scEvents = showcaseAudit?.events || [];
+                    const scLatest = scEvents[scEvents.length - 1];
+                    return (<>
                   <div className="sim-header">
-                    <span className="sim-case-id">CASE: REC-1042 (Rahul Sharma)</span>
-                    <span className="sim-status">₹25,000 AT RISK</span>
+                    <span className="sim-case-id">CASE: {String(showcaseCase.id).slice(0, 8)} ({scName})</span>
+                    <span className="sim-status">{formatINR(scAmount)} AT RISK</span>
                   </div>
                   <div className="sim-body">
                     {activeLoopStep === 0 && (
                       <div className="sim-step-view">
-                        <div className="sim-log-item">⚡ Payment Failed: NPCI 504 Gateway Timeout</div>
-                        <div className="sim-log-item">🔍 Priority Score: 98/100 (High-Value Loyal Customer)</div>
+                        <div className="sim-log-item">⚡ Payment Failed: {String(scReason).replace(/_/g, ' ')}</div>
+                        <div className="sim-log-item">🔍 Priority Score: {scPriority != null ? `${Math.round(Number(scPriority) * 100)}/100` : '—'}</div>
                       </div>
                     )}
                     {activeLoopStep === 1 && (
                       <div className="sim-step-view">
-                        <div className="sim-log-item">🧠 Local ML Diagnosis: TEMPORARY_GATEWAY_DOWNTIME (94% conf)</div>
-                        <div className="sim-factor-bar">
-                          <span>+32% Customer History</span>
-                          <div className="bar-fill" style={{ width: '80%' }} />
-                        </div>
+                        <div className="sim-log-item">🧠 Local ML Diagnosis: {String(scDiag).toUpperCase()}{scConf != null ? ` (${Math.round(Number(scConf) * 100)}% conf)` : ''}</div>
+                        <div className="sim-log-item">Live case data from backend — no demo fixture.</div>
                       </div>
                     )}
                     {activeLoopStep === 2 && (
                       <div className="sim-step-view">
-                        <div className="sim-log-item">📊 Recommended Action: RETRY_IMMEDIATE (92% Recovery Prob)</div>
-                        <div className="sim-log-item">💰 Expected Recovery Value: ₹23,000</div>
+                        <div className="sim-log-item">📊 Recommended Action: {String(scAction).replace(/_/g, ' ').toUpperCase()}{scProb != null ? ` (${Math.round(Number(scProb) * 100)}% Recovery Prob)` : ''}</div>
+                        <div className="sim-log-item">💰 Expected Recovery Value: {scExpected != null ? formatINR(Number(scExpected)) : '—'}</div>
                       </div>
                     )}
                     {activeLoopStep === 3 && (
                       <div className="sim-step-view">
-                        <div className="sim-log-item">🛡️ Max Retries Check: 0/3 (PASSED)</div>
-                        <div className="sim-log-item">⏱️ Cooldown Status: Ready (PASSED)</div>
-                        <div className="sim-log-item">🔒 High Value Gate: &lt; ₹50k Autonomous Limit (PASSED)</div>
+                        <div className="sim-log-item">🛡️ Backend-enforced bounds: max 3 retries, cooldown windows</div>
+                        <div className="sim-log-item">🔒 High Value Gate: {scGate}{scEscalated}</div>
                       </div>
                     )}
                     {activeLoopStep === 4 && (
                       <div className="sim-step-view">
-                        <div className="sim-log-item">🚀 Executing Smart Retry #1 on HDFC Gateway...</div>
+                        <div className="sim-log-item">🚀 Dispatching: {String(scAction).replace(/_/g, ' ')} — executed via backend simulator, never silently.</div>
                         <div className="sim-spinner" />
                       </div>
                     )}
                     {activeLoopStep === 5 && (
                       <div className="sim-step-view">
-                        <div className="sim-log-item success">🎉 TRANSACTION SUCCESSFUL: ₹25,000 Settle Confirmed</div>
-                        <div className="sim-log-item">📈 Total Merchant Recovered updated to ₹10,09,500</div>
+                        <div className="sim-log-item">Case status: {(showcaseCase.status || 'open').toUpperCase()}</div>
+                        <div className="sim-log-item">📈 Total Merchant Recovered: {formatINR(metrics.recoveredRevenue || 0)} (live)</div>
                       </div>
                     )}
                     {activeLoopStep === 6 && (
                       <div className="sim-step-view">
-                        <div className="sim-log-item">📜 Audit Log ID: AUD-992 Written</div>
-                        <div className="sim-log-item">🔐 Hash Verified: 0x8a92...f71c (Immutable)</div>
+                        <div className="sim-log-item">📜 Audit events for this case: {showcaseAudit?.totalEvents ?? scEvents.length}</div>
+                        <div className="sim-log-item">{scLatest ? `Latest: ${scLatest.eventType || scLatest.event_type}` : 'Every decision writes to the audit trail.'}</div>
                       </div>
                     )}
                   </div>
+                    </>);
+                  })()}
                 </div>
               </div>
             </div>

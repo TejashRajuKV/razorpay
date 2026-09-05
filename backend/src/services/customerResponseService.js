@@ -439,6 +439,31 @@ async function getPromiseInfo(caseId) {
   }
 }
 
+/**
+ * Global sweep: settle every overdue PROMISED promise across all cases.
+ * Lets overdue promises become MISSED without anyone reading the record.
+ * Returns { settled, missed } counts. Never throws for missing table.
+ */
+async function settleAllDuePromises(now = new Date()) {
+  try {
+    await ensureTable();
+    const rows = await db.query(
+      "SELECT DISTINCT case_id FROM customer_responses " +
+      "WHERE intent = 'promise_to_pay' AND promise_status = 'PROMISED'"
+    );
+    let missed = 0;
+    for (const row of rows) {
+      try {
+        const settled = await settleDuePromises(row.case_id, now);
+        if (settled && settled.promiseState === PROMISE_STATES.MISSED) missed += 1;
+      } catch { /* one bad case must not stop the sweep */ }
+    }
+    return { settled: rows.length, missed };
+  } catch {
+    return { settled: 0, missed: 0 };
+  }
+}
+
 module.exports = {
   INTENTS,
   PROMISE_STATES,
@@ -447,6 +472,7 @@ module.exports = {
   extractWhen,
   recordCustomerResponse,
   settleDuePromises,
+  settleAllDuePromises,
   markPromiseFulfilled,
   getPromiseInfo,
 };

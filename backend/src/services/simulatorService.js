@@ -98,13 +98,30 @@ const TIME_MODIFIERS = {
  * @param {Number} seed - Optional seed value; uses Date.now() if not provided
  * @returns {Object} RNG with next()/float()/integer() methods
  */
+function seedToInt(seed) {
+  const m = 0x100000000; // 2^32
+  if (seed == null) return Date.now() % m;
+  if (typeof seed === 'number' && Number.isFinite(seed)) return seed % m;
+  // Numeric strings coerce exactly like before; other strings (e.g. "424242-cases")
+  // are hashed (FNV-1a) instead of degrading to NaN state
+  const s = String(seed);
+  const asNum = Number(s);
+  if (s !== '' && Number.isFinite(asNum)) return asNum % m;
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0) % m;
+}
+
 function createSeededRNG(seed) {
   // Use a simple LCG (Linear Congruential Generator) for reproducibility
   // Constants from glibc's rand48
   let m = 0x100000000; // 2^32
   let a = 25214903917;
   let c = 11;
-  let state = (seed || Date.now()) % m;
+  let state = seedToInt(seed);
 
   return {
     next: function () {
@@ -562,7 +579,7 @@ function generateSyntheticCustomers(count = 1000, options = {}) {
     customers.push({
       id: uuidv4(),
       name: `${firstName} ${lastName}`,
-      email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@example.com`,
+      email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}.${baseIndex}@example.com`,
       phone: `+91-${phoneNum.slice(0, 5)}-${phoneNum.slice(5)}`,
       total_payments: totalPayments,
       successful_payments: successfulPayments,
