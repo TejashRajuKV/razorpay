@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { casesAPI, analyticsAPI } from '../services/api';
+import { cascadeIn, rippleIn } from '../services/motion';
 
 function halfDelta(rows, key) {
   if (!Array.isArray(rows) || rows.length < 4) return null;
@@ -105,6 +106,15 @@ export default function Dashboard({
   const [isExecutingAction, setIsExecutingAction] = useState(false);
   const [executionMessage, setExecutionMessage] = useState(null);
   const [trendDelta, setTrendDelta] = useState(null);
+
+  // Decorative entrance motion — data-gated, never on empty states
+  useEffect(() => {
+    cascadeIn('.metric-card', cases.length > 0);
+  }, [cases.length]);
+  useEffect(() => {
+    rippleIn('.case-row-card', cases.length > 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterStatus, searchQuery]);
 
   useEffect(() => {
     let cancelled = false;

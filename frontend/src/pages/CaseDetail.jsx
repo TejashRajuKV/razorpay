@@ -18,6 +18,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 import apiService from '../services/api';
+import { pulseOnce } from '../services/motion';
 
 export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
   const [caseData, setCaseData] = useState(null);
@@ -34,6 +35,11 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
   const [isSubmittingResponse, setIsSubmittingResponse] = useState(false);
   const [responseError, setResponseError] = useState(null);
   const [isCheckingOverdue, setIsCheckingOverdue] = useState(false);
+
+  // Celebrate genuine backend recoveries with a one-shot pulse on the live node
+  useEffect(() => {
+    if (executionResult?.recovered) pulseOnce('flow-live-dot');
+  }, [executionResult]);
 
   useEffect(() => {
     const loadCaseData = async () => {
@@ -550,7 +556,7 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
                 const tone = st === 'success' ? 'success' : (st === 'failed' || st === 'blocked') ? 'blocked' : 'live';
                 return (
                   <div key={`e-${i}`} className="flow-node" style={{ animationDelay: `${(rejected.length + i) * 90}ms` }}>
-                    <div className={`flow-dot ${tone}`}>
+                    <div className={`flow-dot ${tone}`} {...(tone === 'live' ? { id: 'flow-live-dot' } : {})}>
                       {st === 'success' ? <Check size={12} /> : (st === 'failed' || st === 'blocked') ? <XCircle size={12} /> : <Play size={12} />}
                     </div>
                     <div className="flow-card">
