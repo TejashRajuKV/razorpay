@@ -92,9 +92,9 @@ describeDb('recoveryService critical (sqlite)', () => {
     });
 
     test('high-value + low-confidence escalates (camelCase unit shape)', async () => {
-      const c = await seedCase({ id: 'case-d2', amount_at_risk: 90000, priority_score: 0.1 });
+      const c = await seedCase({ id: 'case-d2', amount_at_risk: 90000, priority_score: 0.9 });
       const action = await recoveryService.decideRecoveryAction(
-        { ...c, amountAtRisk: 90000, priorityScore: 0.1 },
+        { ...c, amountAtRisk: 90000, priorityScore: 0.9, diagnosis_confidence: 0.1 },
         { retry: 0.9, reminder: 0.1, payment_link: 0.1, retry_later: 0.1, escalate: 0.05, stop: 0 },
       );
       expect(action).toBe('escalate');
@@ -147,12 +147,12 @@ describeDb('recoveryService critical (sqlite)', () => {
     });
 
     test('high-value + low-confidence forces escalation', async () => {
-      await seedCase({ id: 'case-s6', amount_at_risk: 90000, priority_score: 0.1 });
+      await seedCase({ id: 'case-s6', amount_at_risk: 90000, priority_score: 0.9 });
       const [row] = await db.query('SELECT * FROM recovery_cases WHERE id = ?', ['case-s6']);
-      const blocked = await recoveryService.checkStoppingRules(row, 'retry');
+      const blocked = await recoveryService.checkStoppingRules({ ...row, diagnosis_confidence: 0.1 }, 'retry');
       expect(blocked.allowed).toBe(false);
       expect(blocked.reason).toMatch(/escalation/i);
-      const allowed = await recoveryService.checkStoppingRules(row, 'escalate');
+      const allowed = await recoveryService.checkStoppingRules({ ...row, diagnosis_confidence: 0.1 }, 'escalate');
       expect(allowed.allowed).toBe(true);
     });
   });

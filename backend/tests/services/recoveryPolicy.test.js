@@ -103,16 +103,25 @@ describeDb('evaluateActionPolicy — Authoritative Policy Layer (sqlite)', () =>
   });
 
   test('high-value + low-confidence -> humanEscalation = true, non-escalate blocked', async () => {
-    await seedCase({ id: 'case-pol3', amount_at_risk: 90000, priority_score: 0.1 });
+    await seedCase({ id: 'case-pol3', amount_at_risk: 90000, priority_score: 0.9 });
     const [row] = await db.query('SELECT * FROM recovery_cases WHERE id = ?', ['case-pol3']);
 
-    const blocked = await recoveryService.evaluateActionPolicy(row, 'retry');
+    const blocked = await recoveryService.evaluateActionPolicy(row, 'retry', { confidence: 0.1 });
     expect(blocked.allowed).toBe(false);
     expect(blocked.humanEscalation).toBe(true);
 
-    const escalateAllowed = await recoveryService.evaluateActionPolicy(row, 'escalate');
+    const escalateAllowed = await recoveryService.evaluateActionPolicy(row, 'escalate', { confidence: 0.1 });
     expect(escalateAllowed.allowed).toBe(true);
     expect(escalateAllowed.humanEscalation).toBe(true);
+  });
+
+  test('high priority_score alone does NOT imply high confidence', async () => {
+    await seedCase({ id: 'case-pol3b', amount_at_risk: 90000, priority_score: 0.95 });
+    const [row] = await db.query('SELECT * FROM recovery_cases WHERE id = ?', ['case-pol3b']);
+    const blocked = await recoveryService.evaluateActionPolicy({ ...row, diagnosis_confidence: 0.1 }, 'retry');
+    expect(blocked.allowed).toBe(false);
+    const allowed = await recoveryService.evaluateActionPolicy(row, 'retry');
+    expect(allowed.allowed).toBe(true);
   });
 
   test('max retry attempts -> retry blocked', async () => {
@@ -154,7 +163,7 @@ describeDb('evaluateActionPolicy — Authoritative Policy Layer (sqlite)', () =>
   test('evaluateActionPolicy returns humanEscalation=false for normal case', async () => {
     await seedCase({ id: 'case-pol8', amount_at_risk: 5000, priority_score: 0.8 });
     const [row] = await db.query('SELECT * FROM recovery_cases WHERE id = ?', ['case-pol8']);
-    const result = await recoveryService.evaluateActionPolicy(row, 'retry');
+    const result = await recoveryService.evaluateActionPolicy(row, 'retry', { confidence: 0.85 });
     expect(result.humanEscalation).toBe(false);
   });
 });

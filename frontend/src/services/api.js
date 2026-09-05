@@ -63,7 +63,7 @@ function normalizeCase(backendCase) {
       tier,
     },
     payment: {
-      method: backendCase.payment_method || 'UPI',
+      method: backendCase.payment_method || backendCase.paymentMethod || 'UNKNOWN',
       amount: backendCase.amount_at_risk || 0,
     },
     diagnosis: {
@@ -80,9 +80,9 @@ function normalizeCase(backendCase) {
  * Cases API endpoints
  */
 export const casesAPI = {
-  getAllCases: (filters = {}) => {
+  getAllCases: async (filters = {}) => {
     const params = new URLSearchParams(filters).toString();
-    const raw = apiRequest(`/cases${params ? `?${params}` : ''}`);
+    const raw = await apiRequest(`/cases${params ? `?${params}` : ''}`);
     if (!raw?.success || !raw?.data?.cases) return { success: false };
     return {
       success: true,

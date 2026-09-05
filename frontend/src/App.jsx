@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Header from './components/Header';
 import LandingPage from './pages/LandingPage';
 import Dashboard from './pages/Dashboard';
+import CaseDetail from './pages/CaseDetail';
 import SimulatorPage from './pages/SimulatorPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import AuditPage from './pages/AuditPage';
@@ -34,6 +35,7 @@ export default function App() {
   const [metrics, setMetrics] = useState(INITIAL_METRICS);
   const [cases, setCases] = useState(INITIAL_CASES);
   const [selectedCaseId, setSelectedCaseId] = useState('REC-1042');
+  const [investigatingCaseId, setInvestigatingCaseId] = useState(null);
   const [auditLogs, setAuditLogs] = useState(INITIAL_AUDIT_LOGS);
   const [isBatchRunning, setIsBatchRunning] = useState(false);
   const [backendConnected, setBackendConnected] = useState(false);
@@ -405,12 +407,20 @@ export default function App() {
             </div>
 
             {/* View Switching inside Console */}
-            {dashboardTab === 'overview' && (
-              <Dashboard 
+            {dashboardTab === 'overview' && investigatingCaseId && (
+              <CaseDetail
+                caseId={investigatingCaseId}
+                onBack={() => setInvestigatingCaseId(null)}
+                onExecuteRecovery={handleExecuteRecovery}
+              />
+            )}
+            {dashboardTab === 'overview' && !investigatingCaseId && (
+              <Dashboard
                 metrics={metrics}
                 cases={cases}
                 selectedCaseId={selectedCaseId}
                 setSelectedCaseId={setSelectedCaseId}
+                onOpenCase={(id) => { setSelectedCaseId(id); setInvestigatingCaseId(id); }}
                 onExecuteRecovery={handleExecuteRecovery}
                 onTriggerBatch={handleTriggerBatch}
                 isBatchRunning={isBatchRunning}

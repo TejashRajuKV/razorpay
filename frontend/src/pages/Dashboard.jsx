@@ -76,6 +76,7 @@ export default function Dashboard({
   cases,
   selectedCaseId,
   setSelectedCaseId,
+  onOpenCase,
   onExecuteRecovery,
   onTriggerBatch,
   isBatchRunning,
@@ -442,6 +443,11 @@ export default function Dashboard({
                   <span className="badge badge-purple">Human Approval Needed</span>
                 ) : (
                   <span className="badge badge-orange">Action Ready</span>
+                )}
+                {onOpenCase && (
+                  <button className="btn btn-secondary btn-sm" style={{ marginTop: 8 }} onClick={() => onOpenCase(activeCase.id)}>
+                    <Eye size={14} /><span>Open full investigation</span>
+                  </button>
                 )}
               </div>
             </div>

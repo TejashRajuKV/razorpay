@@ -156,33 +156,65 @@ router.get('/', async (req, res, next) => {
 });
 
 /**
+ * Record a customer response for a case (deterministic intent, no LLM)
+ * POST /api/v1/cases/:id/customer-response  Body: { message }
+ */
+router.post('/:id/customer-response', async (req, res, next) => {
+  try {
+    const { message } = req.body || {};
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ success: false, error: 'message is required' });
+    }
+    const customerResponseService = require('../services/customerResponseService');
+    const result = await customerResponseService.recordCustomerResponse(req.params.id, message);
+    if (!result) {
+      return res.status(404).json({ success: false, error: 'Case not found' });
+    }
+    res.json({ success: true, data: result });
+  } catch (error) {
+    if (error.statusCode === 400) {
+      return res.status(400).json({ success: false, error: error.message });
+    }
+    next(error);
+  }
+});
+
+/**
  * Get specific recovery case by ID
  */
 router.get('/:id', async (req, res, next) => {
   try {
     const caseData = await recoveryService.getRecoveryCase(req.params.id);
-    
+
     if (!caseData) {
       return res.status(404).json({
         success: false,
         error: 'Case not found'
       });
     }
-    
+
     // Get actions for this case
     const db = require('../config/database');
     const actionsQuery = `
-      SELECT * FROM recovery_actions 
-      WHERE case_id = ? 
+      SELECT * FROM recovery_actions
+      WHERE case_id = ?
       ORDER BY created_at DESC
     `;
     const actions = await db.query(actionsQuery, [req.params.id]);
-    
+
+    let customerResponse = null;
+    try {
+      const customerResponseService = require('../services/customerResponseService');
+      await customerResponseService.settleDuePromises(req.params.id);
+      customerResponse = await customerResponseService.getPromiseInfo(req.params.id);
+    } catch { /* advisory only */ }
+
     res.json({
       success: true,
       data: {
         ...caseData,
-        actions
+        actions,
+        recoveryState: { customerResponse }
       }
     });
   } catch (error) {

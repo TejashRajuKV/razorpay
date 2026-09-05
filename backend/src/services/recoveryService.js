@@ -158,12 +158,29 @@ function buildDecisionReason({ action, probability, expectedRecovery, amount, di
   return `${action} selected (p=${probability}, expected Rs.${expectedRecovery} of Rs.${amount}) because ${signals.join('; ')}. Evaluated ${candidateCount} actions.`;
 }
 
+function getRecoveryConfidence(recoveryCase = {}, diagnosisInfo = {}) {
+  const raw = recoveryCase.diagnosis_confidence
+    ?? recoveryCase.diagnosisConfidence
+    ?? recoveryCase.confidence
+    ?? recoveryCase.ml_confidence
+    ?? recoveryCase.mlConfidence
+    ?? diagnosisInfo?.confidence
+    ?? diagnosisInfo?.diagnosis_confidence;
+  const parsed = parseFloat(raw);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function getPriorityScore(recoveryCase = {}) {
+  const raw = recoveryCase.priority_score ?? recoveryCase.priorityScore ?? 0;
+  const parsed = parseFloat(raw);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
 async function decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnosisInfo) {
   const amount = parseFloat(recoveryCase.amount_at_risk ?? recoveryCase.amountAtRisk ?? 0) || 0;
   const diagnosis = recoveryCase.diagnosis || diagnosisInfo?.diagnosis || 'unknown';
-  const confidence = parseFloat(
-    recoveryCase.priority_score ?? recoveryCase.priorityScore ?? diagnosisInfo?.confidence ?? 0
-  ) || 0;
+  const confidence = getRecoveryConfidence(recoveryCase, diagnosisInfo);
+  const priorityScore = getPriorityScore(recoveryCase);
   const actionProbabilities = recoveryProbabilities || {
     retry: 0.3,
     reminder: 0.2,
@@ -185,8 +202,10 @@ async function decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnos
     ...recoveryCase,
     amount_at_risk: amount,
     amountAtRisk: amount,
-    priority_score: recoveryCase.priority_score ?? recoveryCase.priorityScore ?? confidence,
-    priorityScore: recoveryCase.priorityScore ?? recoveryCase.priority_score ?? confidence
+    diagnosis_confidence: confidence,
+    confidence,
+    priority_score: recoveryCase.priority_score ?? recoveryCase.priorityScore ?? priorityScore,
+    priorityScore
   };
   const evaluations = [];
   for (const candidate of candidates) {
@@ -204,6 +223,7 @@ async function decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnos
     return {
       ...selected,
       confidence: Math.round(confidence * 10000) / 10000,
+      priorityScore: Math.round(priorityScore * 10000) / 10000,
       reason: buildDecisionReason({
         action: selected.action,
         probability: selected.probability,
@@ -222,6 +242,7 @@ async function decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnos
   return {
     ...fallback,
     confidence: Math.round(confidence * 10000) / 10000,
+    priorityScore: Math.round(priorityScore * 10000) / 10000,
     reason: buildDecisionReason({
       action: fallback.action,
       probability: fallback.probability,
@@ -320,9 +341,13 @@ async function executeRecoveryAction(caseId, actionType, context = {}) {
       actionId
     ]);
     
-    // Update case status if successful
+    // Update case status if successful + fulfill active promise (genuine success only)
     if (result.success) {
       await updateCaseStatus(caseId, 'resolved', result.recoveredAmount);
+      try {
+        const customerResponseService = require('./customerResponseService');
+        await customerResponseService.markPromiseFulfilled(caseId, result.recoveredAmount || null);
+      } catch { /* promise settlement must never break execution */ }
     }
 
     try {
@@ -388,16 +413,22 @@ async function checkStoppingRules(recoveryCase, actionType) {
   if (status === 'stopped') {
     return { allowed: false, reason: 'Case already stopped — no further actions allowed' };
   }
-  // Low recovery probability guard
-  const prob = parseFloat(recoveryCase.recovery_probability ?? recoveryCase.priority_score ?? 1);
+  // Low recovery probability guard (explicit recovery_probability only, never priority_score)
+  const probRaw = recoveryCase.recovery_probability ?? recoveryCase.recoveryProbability;
+  const prob = probRaw === undefined || probRaw === null ? NaN : parseFloat(probRaw);
   if (!Number.isNaN(prob) && prob < 0.08 && actionType !== 'stop' && actionType !== 'escalate') {
     return { allowed: false, reason: `Recovery probability too low (${prob.toFixed(2)}) — stopping` };
   }
-  // High-value + low-confidence escalation
+  // High-value + low-confidence escalation (genuine ML confidence only, never priority_score)
   const amount = parseFloat(recoveryCase.amount_at_risk ?? recoveryCase.amountAtRisk ?? 0);
-  const conf = parseFloat(recoveryCase.priority_score ?? 1);
+  const hasGenuineConfidence = recoveryCase.diagnosis_confidence !== undefined
+    || recoveryCase.diagnosisConfidence !== undefined
+    || recoveryCase.confidence !== undefined
+    || recoveryCase.ml_confidence !== undefined
+    || recoveryCase.mlConfidence !== undefined;
+  const conf = hasGenuineConfidence ? getRecoveryConfidence(recoveryCase) : 1;
   if (amount > CONFIG.HIGH_VALUE_THRESHOLD && conf < CONFIG.LOW_CONFIDENCE_THRESHOLD && actionType !== 'escalate' && actionType !== 'stop') {
-    return { allowed: false, reason: `High-value (₹${amount}) + low-confidence — human escalation required` };
+    return { allowed: false, reason: `High-value (₹${amount}) + low-confidence — human escalation required`, humanEscalation: true };
   }
   // Check maximum retry attempts
   if (actionType === 'retry' || actionType === 'retry_later') {
@@ -438,7 +469,25 @@ async function checkStoppingRules(recoveryCase, actionType) {
     };
   }
 
-  return { allowed: true };
+  return { allowed: true, humanEscalation: false };
+}
+
+async function evaluateActionPolicy(recoveryCase, actionType, diagnosisInfo = {}) {
+  const merged = { ...recoveryCase };
+  const diagConf = diagnosisInfo?.confidence ?? diagnosisInfo?.diagnosis_confidence;
+  if (diagConf !== undefined && merged.diagnosis_confidence === undefined && merged.confidence === undefined) {
+    merged.diagnosis_confidence = diagConf;
+  }
+  const result = await checkStoppingRules(merged, actionType);
+  if (result.humanEscalation === undefined) {
+    const amount = parseFloat(merged.amount_at_risk ?? merged.amountAtRisk ?? 0);
+    const hasConf = merged.diagnosis_confidence !== undefined || merged.confidence !== undefined
+      || diagnosisInfo?.confidence !== undefined;
+    const conf = hasConf ? getRecoveryConfidence(merged, diagnosisInfo) : 1;
+    result.humanEscalation = amount > CONFIG.HIGH_VALUE_THRESHOLD && conf < CONFIG.LOW_CONFIDENCE_THRESHOLD;
+  }
+  if (result.reason === undefined) result.reason = null;
+  return result;
 }
 
 /**
@@ -517,9 +566,12 @@ async function getRecoveryCases(filters = {}) {
   const whereClause = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
   
   const query = `
-    SELECT rc.*, c.name as customer_name, c.email
+    SELECT rc.*, c.name as customer_name, c.email,
+      p.payment_method, p.status AS payment_status, p.failure_reason,
+      p.amount AS payment_amount, p.id AS payment_id
     FROM recovery_cases rc
     JOIN customers c ON rc.customer_id = c.id
+    JOIN payments p ON rc.payment_id = p.id
     ${whereClause}
     ORDER BY rc.priority_score DESC, rc.created_at ASC
   `;
@@ -607,5 +659,8 @@ module.exports = {
   getRecoveryCases,
   runRecoveryWorkflow,
   checkStoppingRules,
+  evaluateActionPolicy,
+  getRecoveryConfidence,
+  getPriorityScore,
   CONFIG
 };
