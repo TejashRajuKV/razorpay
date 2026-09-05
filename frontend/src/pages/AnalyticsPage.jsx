@@ -17,20 +17,23 @@ import { analyticsAPI } from '../services/api';
 export default function AnalyticsPage({ metrics }) {
   const [advanced, setAdvanced] = useState(null);
   const [alerts, setAlerts] = useState(null);
+  const [strategyComparison, setStrategyComparison] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [advRes, alertRes] = await Promise.all([
+        const [advRes, alertRes, stratRes] = await Promise.all([
           analyticsAPI.getAdvanced(),
           analyticsAPI.getAlerts(),
+          analyticsAPI.getStrategyComparison().catch(() => null),
         ]);
         if (!cancelled) {
           if (advRes?.success) setAdvanced(advRes.data);
           if (alertRes?.success) setAlerts(alertRes.data);
+          if (stratRes?.success) setStrategyComparison(stratRes.data);
         }
-      } catch { /* backend unavailable — mock sections below still render */ }
+      } catch { /* backend unavailable — sections below render only with live data */ }
     })();
     return () => { cancelled = true; };
   }, []);
@@ -136,6 +139,49 @@ export default function AnalyticsPage({ metrics }) {
             <span className="ml-label">Best Action / Channel</span>
             <div className="ml-val purple" style={{ fontSize: 18 }}>{advanced.bestAction || '—'} / {advanced.bestChannel || '—'}</div>
             <span className="ml-note">By recovered revenue</span>
+          </div>
+        </div>
+      )}
+
+      {/* Strategy comparison (live backend simulation, no real payments) */}
+      {strategyComparison && strategyComparison.strategies && (
+        <div className="porcelain-card channel-card">
+          <div className="card-header">
+            <div>
+              <h3 className="card-title">Strategy Comparison</h3>
+              <p className="card-sub">
+                Simulated A/B/C intervention sequences on {strategyComparison.casesEvaluated} live cases. No real payments moved.
+              </p>
+            </div>
+            {strategyComparison.winner && <span className="badge badge-emerald">Recommended: {strategyComparison.winner}</span>}
+          </div>
+          <div className="channel-table-container">
+            <table className="custom-table">
+              <thead>
+                <tr>
+                  <th>Strategy</th>
+                  <th>Sequence</th>
+                  <th>Recovered (₹)</th>
+                  <th>Rate</th>
+                  <th>Net Recovered (₹)</th>
+                  <th>Successes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(strategyComparison.strategies).map(([name, s]) => (
+                  <tr key={name}>
+                    <td className="font-weight-600">
+                      {name} {strategyComparison.winner === name && '★'}
+                    </td>
+                    <td>{(s.sequence || []).join(' → ')}</td>
+                    <td className="font-mono font-weight-700 emerald-text">{formatINR(s.recovered || 0)}</td>
+                    <td>{((s.recoveryRate || 0) * 100).toFixed(1)}%</td>
+                    <td className="font-mono">{formatINR(s.netRecovered || 0)}</td>
+                    <td>{s.successful ?? '—'} / {s.cases ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

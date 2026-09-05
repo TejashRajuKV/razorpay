@@ -89,8 +89,18 @@ export default function Dashboard({
   const [isExecutingAction, setIsExecutingAction] = useState(false);
   const [executionMessage, setExecutionMessage] = useState(null);
 
-  // Selected case
+  // Selected case — may be absent when backend has provided no data
   const activeCase = cases.find(c => c.id === selectedCaseId) || cases[0];
+  if (!activeCase) {
+    return (
+      <div className="dashboard-layout">
+        <div className="porcelain-card" style={{ padding: 32, textAlign: 'center' }}>
+          <h2>No case data available</h2>
+          <p>Backend is unreachable or has not returned any recovery cases. No data is shown.</p>
+        </div>
+      </div>
+    );
+  }
 
   // Filtered cases
   const filteredCases = cases.filter(c => {

@@ -7,11 +7,20 @@ import SimulatorPage from './pages/SimulatorPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import AuditPage from './pages/AuditPage';
 import apiService from './services/api';
-import { 
-  INITIAL_METRICS, 
-  INITIAL_CASES, 
-  INITIAL_AUDIT_LOGS 
-} from './data/mockData';
+
+// Empty initial state — backend is the sole data source.
+// No mock rows are ever presented as live data (audit Bug #4).
+const EMPTY_METRICS = {
+  totalMonitoredRevenue: 0,
+  revenueAtRisk: 0,
+  recoveredRevenue: 0,
+  recoveryRate: 0,
+  casesProcessed: 0,
+  activeCases: 0,
+  stoppedCases: 0,
+  escalatedCases: 0,
+  avgRecoveryTimeMinutes: 0
+};
 import { 
   LayoutDashboard, 
   Cpu, 
@@ -31,12 +40,12 @@ export default function App() {
   // Dashboard Sub-navigation: 'overview', 'simulator', 'analytics', 'audit'
   const [dashboardTab, setDashboardTab] = useState('overview');
 
-  // Application Dynamic State — mock is explicit offline fallback only
-  const [metrics, setMetrics] = useState(INITIAL_METRICS);
-  const [cases, setCases] = useState(INITIAL_CASES);
-  const [selectedCaseId, setSelectedCaseId] = useState('REC-1042');
+  // Application Dynamic State — backend is authoritative; empty until loaded
+  const [metrics, setMetrics] = useState(EMPTY_METRICS);
+  const [cases, setCases] = useState([]);
+  const [selectedCaseId, setSelectedCaseId] = useState(null);
   const [investigatingCaseId, setInvestigatingCaseId] = useState(null);
-  const [auditLogs, setAuditLogs] = useState(INITIAL_AUDIT_LOGS);
+  const [auditLogs, setAuditLogs] = useState([]);
   const [isBatchRunning, setIsBatchRunning] = useState(false);
   const [backendConnected, setBackendConnected] = useState(false);
   const [loadingFromBackend, setLoadingFromBackend] = useState(false);
@@ -54,7 +63,8 @@ export default function App() {
         await loadInitialDataFromBackend();
       } catch (error) {
         setBackendConnected(false);
-        console.warn('[App] Backend not available, using mock data:', error.message);
+        setBackendError('Backend unavailable — start the server. No data is shown.');
+        console.warn('[App] Backend not available, showing no data:', error.message);
       }
     };
 
@@ -93,7 +103,7 @@ export default function App() {
       setBackendError(null);
     } catch (error) {
       console.error('[App] Failed to load data from backend:', error);
-      setBackendError('Backend request failed — showing cached demo data');
+      setBackendError('Backend request failed — showing no data.');
     } finally {
       setLoadingFromBackend(false);
     }
@@ -176,107 +186,16 @@ export default function App() {
       }
     }
 
-    // Explicit offline demo fallback only (backend disconnected) — clearly marked
-    // Local fallback (original mock behavior)
-    // Safety checks
-    if (actionType === 'STOP_RECOVERY') {
-      const updatedCases = cases.map(c => {
-        if (c.id === caseId) {
-          return {
-            ...c,
-            status: 'STOPPED',
-            guardrails: {
-              ...c.guardrails,
-              stoppingRuleHit: 'MANUAL_OR_SAFETY_STOP_TRIGGERED',
-              status: 'HALTED_BY_SAFETY_POLICY'
-            },
-            history: [
-              ...c.history,
-              { timestamp: new Date().toISOString(), actor: 'SAFETY_GUARDRAIL', event: 'Case halted by safety policy' }
-            ]
-          };
-        }
-        return c;
-      });
-
-      setCases(updatedCases);
-      setMetrics(prev => ({
-        ...prev,
-        stoppedCases: prev.stoppedCases + 1,
-        activeCases: Math.max(0, prev.activeCases - 1)
-      }));
-
-      // Add to audit log
-      const newAudit = {
-        id: `AUD-${Math.floor(1000 + Math.random() * 9000)}`,
-        timestamp: new Date().toISOString(),
-        caseId: caseId,
-        actor: 'SAFETY_GUARDRAIL',
-        eventType: 'STOPPING_RULE_TRIGGERED',
-        details: `Recovery halted for case ${caseId} by safety policy.`,
-        safetyStatus: 'HALTED_PREVENTION',
-        recoveryDelta: 0
-      };
-      setAuditLogs(prev => [newAudit, ...prev]);
-
-      return { stopped: true, reason: 'Case stopped by safety policy' };
+    // Backend disconnected — refuse instead of fabricating a recovery outcome
+    if (!backendConnected) {
+      const msg = 'Backend unavailable — action not executed. No data was changed.';
+      setBackendError(msg);
+      return { recovered: false, stopped: false, blocked: true, reason: msg };
     }
-
-    // Normal recovery execution
-    const recoveredAmount = targetCase.payment.amount;
-    const updatedCases = cases.map(c => {
-      if (c.id === caseId) {
-        return {
-          ...c,
-          status: 'RECOVERED',
-          recoveredAmount: recoveredAmount,
-          guardrails: {
-            ...c.guardrails,
-            retriesUsed: c.guardrails.retriesUsed + 1,
-            status: 'RECOVERED_SUCCESSFULLY'
-          },
-          history: [
-            ...c.history,
-            { timestamp: new Date().toISOString(), actor: 'POLICY_ENGINE', event: `Executed ${actionType}` },
-            { timestamp: new Date().toISOString(), actor: 'PAYMENT_SIMULATOR', event: `SUCCESS: Settled ₹${recoveredAmount.toLocaleString('en-IN')}` }
-          ]
-        };
-      }
-      return c;
-    });
-
-    setCases(updatedCases);
-
-    // Update aggregate metrics
-    setMetrics(prev => {
-      const newRecovered = prev.recoveredRevenue + recoveredAmount;
-      const newRate = Number(((newRecovered / prev.revenueAtRisk) * 100).toFixed(1));
-      return {
-        ...prev,
-        recoveredRevenue: newRecovered,
-        recoveryRate: Math.min(100, newRate),
-        activeCases: Math.max(0, prev.activeCases - 1)
-      };
-    });
-
-    // Add audit log entry
-    const newAudit = {
-      id: `AUD-${Math.floor(1000 + Math.random() * 9000)}`,
-      timestamp: new Date().toISOString(),
-      caseId: caseId,
-      actor: 'AI_RECOVERY_AGENT',
-      eventType: 'REVENUE_RECOVERED',
-      details: `Executed bounded intervention (${actionType}) on ${targetCase.customer.name}. Payment settled for ₹${recoveredAmount.toLocaleString('en-IN')}.`,
-      safetyStatus: 'RECOVERY_CONFIRMED',
-      recoveryDelta: recoveredAmount
-    };
-    setAuditLogs(prev => [newAudit, ...prev]);
-
-    return {
-      recovered: true,
-      amount: recoveredAmount,
-      customerName: targetCase.customer.name
-    };
+    // Backend gave no usable result — never fabricate recovery outcomes or audit entries
+    const noResult = 'Backend did not return a result — no action recorded, no data changed.';
+    setBackendError(noResult);
+    return { recovered: false, amount: 0, message: noResult };
   };
 
   // Trigger high-volume batch simulation — backend values only, no hardcoded revenue
@@ -316,8 +235,8 @@ export default function App() {
       }
     }
     
-    // Explicit offline demo: no backend, no fake revenue inflation
-    setBackendError('Backend unavailable — showing cached demo data (batch not executed)');
+    // Explicit offline: no backend, nothing executed, no data shown
+    setBackendError('Backend unavailable — batch not executed. No data is shown.');
     setIsBatchRunning(false);
   };
 
@@ -347,7 +266,7 @@ export default function App() {
       />
       {!backendConnected && (
         <div style={{ background: '#FEF3C7', borderBottom: '1px solid #1A1A1A', padding: '8px 20px', fontSize: 13, fontWeight: 700, textAlign: 'center' }}>
-          Offline demo mode — backend disconnected. Showing cached demo data. ML Engine: Fallback / Offline · Model: Local heuristics
+          Backend disconnected — no data is shown. Start the backend server to load live recovery data.
         </div>
       )}
       {backendConnected && (

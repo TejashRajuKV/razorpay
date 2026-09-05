@@ -145,6 +145,11 @@ export const analyticsAPI = {
   getMetrics: () => apiRequest('/analytics/overview'),
   getAdvanced: () => apiRequest('/analytics/advanced'),
   getAlerts: () => apiRequest('/recovery/alerts'),
+  getStrategyComparison: (payload = {}) =>
+    apiRequest('/recovery/strategy-comparison', {
+      method: 'POST',
+      body: JSON.stringify({ limit: 20, ...payload }),
+    }),
   getTrends: (timeRange = '7d') => {
     const periodMap = {
       '24h': 'hourly',

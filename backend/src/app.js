@@ -127,6 +127,8 @@ async function startServer() {
     // Initialize database
     await initializeDatabase();
     console.log('[Server] Database initialized');
+    const { runMigrations } = require('./config/migrations');
+    await runMigrations();
     
     // Start listening
     app.listen(PORT, () => {

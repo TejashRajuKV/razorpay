@@ -6,7 +6,7 @@ async function getCustomerRecoveryProfile(customerId) {
   const customer = customers[0];
 
   const payments = await db.query(
-    'SELECT status, amount, payment_method FROM payments WHERE customer_id = ?',
+    'SELECT status, amount, payment_method, created_at FROM payments WHERE customer_id = ?',
     [customerId]
   );
   const cases = await db.query(
@@ -64,6 +64,23 @@ async function getCustomerRecoveryProfile(customerId) {
     }
   }
 
+  const resolvedCases = cases.filter((c) => c.status === 'resolved').length;
+  const recoverySuccessRate = cases.length > 0 ? resolvedCases / cases.length : 0;
+  let daysSinceLastSuccess = null;
+  const successDates = payments
+    .filter((p) => p.status === 'success' && p.created_at)
+    .map((p) => new Date(p.created_at).getTime());
+  if (successDates.length > 0) {
+    daysSinceLastSuccess = Math.max(0, (Date.now() - Math.max(...successDates)) / 86400000);
+  }
+  const recoveryScore = calculateRecoveryScore({
+    payment_success_rate: successRate,
+    recovery_success_rate: recoverySuccessRate,
+    days_since_last_success: daysSinceLastSuccess,
+    avg_amount: totalPayments > 0 ? totalAmount / totalPayments : 0,
+    total_payments: totalPayments
+  });
+
   return {
     customerId,
     totalPayments,
@@ -77,8 +94,27 @@ async function getCustomerRecoveryProfile(customerId) {
     byAction,
     bestAction,
     preferredPaymentMethod,
-    customerSegment: customer.customer_segment || 'standard'
+    customerSegment: customer.customer_segment || 'standard',
+    recoveryScore: recoveryScore.recovery_score,
+    recoveryTier: recoveryScore.tier
   };
 }
 
-module.exports = { getCustomerRecoveryProfile };
+/**
+ * Customer Recovery Score (0–100): weighted blend of payment success (35%),
+ * recovery history (25%), recency (20%), amount tier (10%), tenure (10%).
+ */
+function calculateRecoveryScore(customer = {}) {
+  const s1 = (customer.payment_success_rate || 0) * 100;
+  const s2 = (customer.recovery_success_rate || 0) * 100;
+  const s3 = customer.days_since_last_success == null
+    ? 50
+    : Math.max(0, 100 - customer.days_since_last_success * 2);
+  const avg = customer.avg_amount || 0;
+  const s4 = avg > 10000 ? 80 : avg > 5000 ? 60 : 40;
+  const s5 = Math.min(100, (customer.total_payments || 0) * 5);
+  const score = Math.round(0.35 * s1 + 0.25 * s2 + 0.20 * s3 + 0.10 * s4 + 0.10 * s5);
+  return { recovery_score: score, tier: score >= 70 ? 'HIGH' : score >= 40 ? 'MEDIUM' : 'LOW' };
+}
+
+module.exports = { getCustomerRecoveryProfile, calculateRecoveryScore };

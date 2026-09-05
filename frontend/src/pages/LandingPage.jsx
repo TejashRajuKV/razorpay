@@ -217,22 +217,6 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
               </button>
             )}
 
-            {/* Bottom-Right Reference Overlay Card ("Chat with Angie" style) */}
-            <div className="video-floating-widget porcelain-card">
-              <div className="widget-avatar-box">
-                <Bot size={26} color="#FF6A00" />
-              </div>
-              <div className="widget-content">
-                <span className="widget-label">Autonomous AI Agent</span>
-                <h4 className="widget-heading">Robot Assistant</h4>
-                <p className="widget-sub">Executing precision payment recovery & root cause diagnosis</p>
-                <button className="widget-btn" onClick={onLaunchConsole}>
-                  <span>Launch Console</span>
-                  <ArrowRight size={13} />
-                </button>
-              </div>
-            </div>
-
           </div>
         </div>
 
@@ -276,9 +260,15 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
         {/* Row 01 */}
         <div className="pathway-row">
           <div className="pathway-visual visual-mint">
-            <div className="pathway-sketch-ring" />
-            <Zap size={44} strokeWidth={1.5} color="#1A1A1A" />
-            <span className="pathway-visual-caption">Live ingestion • webhooks • UPI • 3DS</span>
+            <video
+              src="/something_realsitic_robot_like.mp4"
+              className="pathway-video"
+              autoPlay
+              loop
+              muted
+              playsInline
+            />
+            <span className="pathway-visual-caption overlay">Live ingestion • webhooks • UPI • 3DS</span>
             <span className="pathway-visual-num">01</span>
           </div>
           <div className="pathway-copy">
@@ -301,9 +291,12 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
         {/* Row 02 */}
         <div className="pathway-row reverse">
           <div className="pathway-visual visual-sand">
-            <div className="pathway-sketch-ring" />
-            <Cpu size={44} strokeWidth={1.5} color="#1A1A1A" />
-            <span className="pathway-visual-caption">Random Forest • XGBoost • SHAP bars</span>
+            <img
+              src="/o-jibo1210.gif"
+              className="pathway-video"
+              alt="ML robot illustration"
+            />
+            <span className="pathway-visual-caption overlay">Random Forest • XGBoost • SHAP bars</span>
             <span className="pathway-visual-num">02</span>
           </div>
           <div className="pathway-copy">
@@ -326,9 +319,12 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
         {/* Row 03 */}
         <div className="pathway-row">
           <div className="pathway-visual visual-blush">
-            <div className="pathway-sketch-ring" />
-            <ShieldCheck size={44} strokeWidth={1.5} color="#1A1A1A" />
-            <span className="pathway-visual-caption">Max 3 retries • cooldowns • &gt;₹50k review</span>
+            <img
+              src="/62304854b77261b257b64f25cc7b7fa2.gif"
+              className="pathway-video"
+              alt="Safety guardrails illustration"
+            />
+            <span className="pathway-visual-caption overlay">Max 3 retries • cooldowns • &gt;₹50k review</span>
             <span className="pathway-visual-num">03</span>
           </div>
           <div className="pathway-copy">
@@ -627,7 +623,8 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
           align-items: center;
           justify-content: center;
           gap: 14px;
-          margin-bottom: 52px;
+          margin-bottom: 0 !important;
+          padding-bottom: 0 !important;
           flex-wrap: wrap;
         }
         .hero-cta-group .btn {
@@ -770,6 +767,23 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
           border-radius: 999px;
           border: 1px solid rgba(0,0,0,0.08);
         }
+        .pathway-video {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
+        }
+        .pathway-visual-caption.overlay {
+          position: absolute;
+          bottom: 14px;
+          left: 50%;
+          transform: translateX(-50%);
+          white-space: nowrap;
+          z-index: 2;
+        }
+        .pathway-visual-num { z-index: 2; }
         .pathway-visual-num {
           position: absolute;
           bottom: 8px;
@@ -1064,15 +1078,20 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
         }
 
         .loop-tab-btn.active {
-          background: #111110;
-          color: #fff;
+          background: #1E293B;
+          color: #F8FAFC;
           box-shadow: none;
           font-weight: 700;
+        }
+        .loop-tab-btn.active .tab-step {
+          background: #F3ECDB;
+          color: #1E293B;
         }
 
         .tab-step {
           font-size: 11px;
           background: #F3ECDB;
+          color: #1E293B;
           padding: 2px 6px;
           border-radius: 999px;
         }
@@ -1251,17 +1270,16 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
           box-shadow: 4px 4px 0px #111110 !important;
         }
 
-        /* Hero Video — full-bleed, thin ink rules like ref illustration */
+        /* Hero Video — full-bleed edge-to-edge, no cream bleed */
         .hero-video-showcase-container {
           width: 100vw;
           max-width: none;
           margin: 0 0 0 50%;
           transform: translateX(-50%);
-          border-radius: 12px;
+          border-radius: 0;
           overflow: hidden;
-          background: #111110;
-          border-top: 1px solid #111110;
-          border-bottom: 1px solid #111110;
+          background: #000000;
+          border: none;
           box-shadow: none;
         }
 
@@ -1318,7 +1336,7 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
           height: 82vh;
           min-height: 560px;
           max-height: 860px;
-          background: #0D1117;
+          background: #000000;
           display: block;
           overflow: hidden;
         }

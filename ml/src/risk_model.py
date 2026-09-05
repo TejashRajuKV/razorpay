@@ -74,7 +74,7 @@ def _synthetic_dataset(n=2000, seed=42):
 
 
 class RiskPredictionModel:
-    VERSION = "v2.0.0-sklearn"
+    VERSION = "v2.1.0-calibrated"
 
     def __init__(self):
         self.is_initialized = False
@@ -85,13 +85,20 @@ class RiskPredictionModel:
     def initialize(self):
         try:
             from sklearn.ensemble import RandomForestClassifier
+            from sklearn.calibration import CalibratedClassifierCV
             from sklearn.model_selection import train_test_split
-            from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+            from sklearn.metrics import (
+                accuracy_score, precision_score, recall_score,
+                f1_score, roc_auc_score, brier_score_loss,
+            )
             X, y = _synthetic_dataset()
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y, test_size=0.2, random_state=42, stratify=y
             )
-            clf = RandomForestClassifier(n_estimators=120, max_depth=8, random_state=42, n_jobs=1)
+            base_rf = RandomForestClassifier(
+                n_estimators=120, max_depth=8, random_state=42, n_jobs=1
+            )
+            clf = CalibratedClassifierCV(base_rf, method="isotonic", cv=5)
             clf.fit(X_train, y_train)
             proba = clf.predict_proba(X_test)[:, 1]
             pred = (proba >= 0.5).astype(int)
@@ -101,8 +108,10 @@ class RiskPredictionModel:
                 'recall': round(float(recall_score(y_test, pred, zero_division=0)), 4),
                 'f1': round(float(f1_score(y_test, pred, zero_division=0)), 4),
                 'roc_auc': round(float(roc_auc_score(y_test, proba)), 4),
+                'brier_score': round(float(brier_score_loss(y_test, proba)), 4),
                 'test_size': int(len(y_test)),
                 'model_version': self.VERSION,
+                'note': 'Trained on synthetic data. Metrics are demonstration values only.',
             }
             self.model = clf
             self.sklearn_available = True

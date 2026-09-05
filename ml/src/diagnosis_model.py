@@ -2,17 +2,31 @@
 Diagnosis Model - Root Cause Classification
 Local sklearn classifier trained on synthetic data (no external APIs).
 Falls back to rules if sklearn is unavailable.
-Categories: temporary_failure, repeated_failure, data_issue, abandonment
+Categories (India-specific): network_timeout, insufficient_funds, card_expired,
+upi_pin_error, bank_decline, abandoned, data_error
 """
 
 import numpy as np
 
 CATEGORIES = [
-    'temporary_failure',
-    'repeated_failure',
-    'data_issue',
-    'abandonment',
+    'network_timeout',
+    'insufficient_funds',
+    'card_expired',
+    'upi_pin_error',
+    'bank_decline',
+    'abandoned',
+    'data_error',
 ]
+
+CATEGORY_TO_ACTION = {
+    'network_timeout': {'action': 'retry', 'wait_min': 5},
+    'insufficient_funds': {'action': 'reminder', 'wait_min': 1440},
+    'card_expired': {'action': 'payment_link', 'wait_min': 30},
+    'upi_pin_error': {'action': 'reminder', 'wait_min': 60},
+    'bank_decline': {'action': 'retry_later', 'wait_min': 360},
+    'abandoned': {'action': 'payment_link', 'wait_min': 120},
+    'data_error': {'action': 'escalate', 'wait_min': 0},
+}
 
 FAILURE_REASONS = [
     'insufficient_funds', 'card_expired', 'transaction_timeout',
@@ -23,14 +37,14 @@ FAILURE_REASONS = [
 ]
 
 REASON_DIAGNOSIS_MAP = {
-    'insufficient_funds': 'temporary_failure',
-    'transaction_timeout': 'temporary_failure',
-    'bank_error': 'temporary_failure',
-    'card_expired': 'data_issue',
-    'invalid_upi_id': 'data_issue',
-    'declined_by_bank': 'temporary_failure',
-    'card_limit_exceeded': 'temporary_failure',
-    'checkout_abandoned': 'abandonment',
+    'insufficient_funds': 'insufficient_funds',
+    'card_limit_exceeded': 'insufficient_funds',
+    'transaction_timeout': 'network_timeout',
+    'bank_error': 'network_timeout',
+    'card_expired': 'card_expired',
+    'invalid_upi_id': 'upi_pin_error',
+    'declined_by_bank': 'bank_decline',
+    'checkout_abandoned': 'abandoned',
 }
 
 
@@ -63,13 +77,17 @@ def _synthetic_dataset(n=2400, seed=7):
         abandoned = bool(rng.random() < 0.12)
         days = float(rng.uniform(0, 20))
         if abandoned:
-            label = 'abandonment'
-        elif fr in ('card_expired', 'invalid_upi_id'):
-            label = 'data_issue'
+            label = 'abandoned'
+        elif fr in ('card_expired',):
+            label = 'card_expired'
+        elif fr in ('invalid_upi_id',):
+            label = 'upi_pin_error'
         elif attempts >= 3 or (success_rate < 0.5 and total > 3):
-            label = 'repeated_failure'
+            label = 'bank_decline'
         else:
-            label = 'temporary_failure'
+            label = REASON_DIAGNOSIS_MAP.get(fr, 'network_timeout')
+            if label not in CATEGORIES:
+                label = 'data_error'
         if rng.random() < 0.07:
             label = str(rng.choice(CATEGORIES))
         feats = {
@@ -126,21 +144,21 @@ class DiagnosisModel:
         customer_total_payments = features.get('customer_total_payments', 1)
         payment_status = features.get('payment_status', 'failed')
         days_since_failure = features.get('days_since_failure', 0)
-        diagnosis = REASON_DIAGNOSIS_MAP.get(failure_reason, 'temporary_failure')
+        diagnosis = REASON_DIAGNOSIS_MAP.get(failure_reason, 'data_error')
         confidence = 0.65
         factors = ['failure_reason_match']
         if attempt_count >= 3 or (customer_success_rate < 0.5 and customer_total_payments > 3):
-            diagnosis = 'repeated_failure'
+            diagnosis = 'bank_decline'
             confidence = max(confidence, 0.75)
             factors.append('repeated_pattern_detected')
         if payment_status == 'abandoned':
-            diagnosis = 'abandonment'
+            diagnosis = 'abandoned'
             confidence = 0.85
             factors = ['checkout_abandonment']
-        if diagnosis == 'data_issue':
+        if diagnosis in ('data_error', 'card_expired'):
             confidence = max(confidence, 0.85)
-        if days_since_failure > 7 and diagnosis == 'temporary_failure':
-            diagnosis = 'repeated_failure'
+        if days_since_failure > 7 and diagnosis == 'network_timeout':
+            diagnosis = 'bank_decline'
             factors.append('time_decay')
         alternatives = [
             {'diagnosis': c, 'probability': 0.2 if c != diagnosis else 0.0}

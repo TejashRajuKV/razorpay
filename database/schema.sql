@@ -38,9 +38,10 @@ CREATE TABLE IF NOT EXISTS recovery_cases (
     id VARCHAR(36) PRIMARY KEY,
     payment_id VARCHAR(36) NOT NULL,
     customer_id VARCHAR(36) NOT NULL,
+    trace_id VARCHAR(36),
     amount_at_risk DECIMAL(15, 2) NOT NULL,
     risk_probability DECIMAL(5, 4) NOT NULL,
-    diagnosis VARCHAR(100) NOT NULL, -- 'temporary_failure', 'repeated_failure', 'abandonment', 'overdue'
+    diagnosis VARCHAR(100) NOT NULL, -- 7 categories: network_timeout, insufficient_funds, card_expired, upi_pin_error, bank_decline, abandoned, data_error
     diagnosis_factors JSON,
     priority_score DECIMAL(5, 4) NOT NULL,
     status VARCHAR(50) DEFAULT 'open', -- 'open', 'in_progress', 'resolved', 'stopped', 'escalated'
@@ -60,6 +61,9 @@ CREATE TABLE IF NOT EXISTS recovery_actions (
     action_type VARCHAR(100) NOT NULL, -- 'retry', 'retry_later', 'reminder', 'payment_link', 'escalate', 'stop'
     action_status VARCHAR(50) DEFAULT 'pending', -- 'pending', 'executed', 'success', 'failed'
     attempt_number INT NOT NULL DEFAULT 1,
+    idempotency_key VARCHAR(64),
+    incentive_amount DECIMAL(10, 2) DEFAULT 0.00,
+    incentive_type VARCHAR(50) DEFAULT 'none',
     executed_at TIMESTAMP,
     result_message TEXT,
     recovery_amount DECIMAL(15, 2) DEFAULT 0.00,
@@ -107,9 +111,30 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     event_data JSON NOT NULL,
     previous_state JSON,
     new_state JSON,
+    trace_id VARCHAR(36),
+    model_version VARCHAR(50),
+    before_state TEXT,
+    after_state TEXT,
     user_or_system VARCHAR(100) DEFAULT 'system',
     ip_address VARCHAR(45),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Per-action diagnosis adjustments for bounded outcome feedback (4.7)
+CREATE TABLE IF NOT EXISTS action_probability_adjustments (
+    action VARCHAR(50) NOT NULL,
+    diagnosis_category VARCHAR(50) NOT NULL,
+    adjustment DECIMAL(5, 4) DEFAULT 0.0000,
+    sample_count INT DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (action, diagnosis_category)
+);
+
+-- Global runtime switches (4.5 emergency stop)
+CREATE TABLE IF NOT EXISTS system_config (
+    key VARCHAR(100) PRIMARY KEY,
+    value VARCHAR(255),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Notifications table: Simulated reminders and payment link events

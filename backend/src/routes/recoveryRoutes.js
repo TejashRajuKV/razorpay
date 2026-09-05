@@ -363,6 +363,54 @@ router.post('/strategy-comparison', async (req, res, next) => {
 });
 
 /**
+ * Emergency global STOP — blocks all recovery action execution
+ * POST /api/v1/recovery/admin/stop-all
+ */
+router.post('/admin/stop-all', async (req, res, next) => {
+  try {
+    const db = require('../config/database');
+    await db.query(
+      `INSERT INTO system_config (key, value, updated_at) VALUES ('global_stop', 'true', CURRENT_TIMESTAMP)
+       ON CONFLICT(key) DO UPDATE SET value = 'true', updated_at = CURRENT_TIMESTAMP`
+    );
+    await auditService.logEvent({
+      entityType: 'case',
+      entityId: 'global',
+      eventType: 'global_stop_enabled',
+      eventData: {},
+      userOrSystem: req.headers['x-user-id'] || 'api_user'
+    });
+    res.json({ success: true, data: { globalStop: true } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Release the emergency global STOP
+ * POST /api/v1/recovery/admin/release-all
+ */
+router.post('/admin/release-all', async (req, res, next) => {
+  try {
+    const db = require('../config/database');
+    await db.query(
+      `INSERT INTO system_config (key, value, updated_at) VALUES ('global_stop', 'false', CURRENT_TIMESTAMP)
+       ON CONFLICT(key) DO UPDATE SET value = 'false', updated_at = CURRENT_TIMESTAMP`
+    );
+    await auditService.logEvent({
+      entityType: 'case',
+      entityId: 'global',
+      eventType: 'global_stop_released',
+      eventData: {},
+      userOrSystem: req.headers['x-user-id'] || 'api_user'
+    });
+    res.json({ success: true, data: { globalStop: false } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * Recovery ROI from recorded outcomes (simulated action costs labeled as such)
  * GET /api/v1/recovery/roi
  */
@@ -379,14 +427,21 @@ router.get('/roi', async (req, res, next) => {
     );
     const actionCounts = {};
     for (const row of actions) actionCounts[row.action_type] = row.n;
+    let recordedIncentive = 0;
+    try {
+      const inc = await db.query(
+        `SELECT COALESCE(SUM(incentive_amount), 0) AS total_incentive FROM recovery_actions`
+      );
+      recordedIncentive = parseFloat(inc[0]?.total_incentive) || 0;
+    } catch { /* older DBs without the column — incentive stays 0 */ }
     const roi = roiService.calculateROI({
       grossRecovered: parseFloat(totals[0].recovered) || 0,
       amountAtRisk: parseFloat(totals[0].at_risk) || 0,
-      incentiveCost: 0,
+      incentiveCost: recordedIncentive,
       actionCounts,
       casesCount: totals[0].cases
     });
-    res.json({ success: true, data: { ...roi, incentiveNote: 'Recorded incentive spend is not yet persisted; incentiveCost reflects passed spend only.' } });
+    res.json({ success: true, data: roi });
   } catch (error) {
     next(error);
   }

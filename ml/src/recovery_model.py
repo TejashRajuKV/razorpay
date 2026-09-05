@@ -10,13 +10,21 @@ import numpy as np
 ACTIONS = ['retry', 'reminder', 'payment_link', 'retry_later', 'escalate', 'stop']
 
 BASE_RATES = {
+    'network_timeout': {'retry': 0.65, 'reminder': 0.30, 'payment_link': 0.40, 'retry_later': 0.45, 'escalate': 0.50, 'stop': 0.0},
+    'insufficient_funds': {'retry': 0.25, 'reminder': 0.45, 'payment_link': 0.30, 'retry_later': 0.35, 'escalate': 0.30, 'stop': 0.0},
+    'card_expired': {'retry': 0.15, 'reminder': 0.35, 'payment_link': 0.55, 'retry_later': 0.15, 'escalate': 0.40, 'stop': 0.0},
+    'upi_pin_error': {'retry': 0.30, 'reminder': 0.45, 'payment_link': 0.35, 'retry_later': 0.20, 'escalate': 0.25, 'stop': 0.0},
+    'bank_decline': {'retry': 0.20, 'reminder': 0.20, 'payment_link': 0.35, 'retry_later': 0.35, 'escalate': 0.45, 'stop': 0.0},
+    'abandoned': {'retry': 0.20, 'reminder': 0.40, 'payment_link': 0.50, 'retry_later': 0.25, 'escalate': 0.30, 'stop': 0.0},
+    'data_error': {'retry': 0.10, 'reminder': 0.20, 'payment_link': 0.30, 'retry_later': 0.10, 'escalate': 0.50, 'stop': 0.05},
+    # Legacy labels retained so historically stored cases still resolve
     'temporary_failure': {'retry': 0.65, 'reminder': 0.30, 'payment_link': 0.40, 'retry_later': 0.45, 'escalate': 0.50, 'stop': 0.0},
     'repeated_failure': {'retry': 0.25, 'reminder': 0.20, 'payment_link': 0.35, 'retry_later': 0.20, 'escalate': 0.45, 'stop': 0.0},
     'data_issue': {'retry': 0.15, 'reminder': 0.35, 'payment_link': 0.55, 'retry_later': 0.15, 'escalate': 0.40, 'stop': 0.0},
     'abandonment': {'retry': 0.20, 'reminder': 0.45, 'payment_link': 0.50, 'retry_later': 0.25, 'escalate': 0.30, 'stop': 0.0},
 }
 
-DIAGNOSES = ['temporary_failure', 'repeated_failure', 'data_issue', 'abandonment']
+DIAGNOSES = ['network_timeout', 'insufficient_funds', 'card_expired', 'upi_pin_error', 'bank_decline', 'abandoned', 'data_error']
 SEGMENTS = ['standard', 'premium', 'new']
 FAILURE_REASONS = [
     'insufficient_funds', 'card_expired', 'transaction_timeout',
@@ -61,7 +69,7 @@ def features_to_vector(case_features: dict, diagnosis: str):
 
 
 def _best_action_for(diagnosis, success_rate, segment, attempts, amount_rel):
-    rates = dict(BASE_RATES.get(diagnosis, BASE_RATES['temporary_failure']))
+    rates = dict(BASE_RATES.get(diagnosis, BASE_RATES['network_timeout']))
     hist = 1.0 + (success_rate - 0.5) * 0.4
     for a in rates:
         if rates[a] > 0:
@@ -141,7 +149,7 @@ class RecoveryProbabilityModel:
         return self
 
     def _heuristic_predict(self, case_features: dict, diagnosis: str) -> dict:
-        base_rates = dict(BASE_RATES.get(diagnosis, BASE_RATES['temporary_failure']))
+        base_rates = dict(BASE_RATES.get(diagnosis, BASE_RATES['network_timeout']))
         customer_success_rate = case_features.get('customer_success_rate', 0.7)
         previous_attempts = case_features.get('previous_recovery_attempts', 0)
         amount_relative = case_features.get('amount_relative_to_average', 1.0)

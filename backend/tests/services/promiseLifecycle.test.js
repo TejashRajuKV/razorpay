@@ -1,7 +1,11 @@
 jest.mock('../../src/config/database', () => ({ query: jest.fn() }));
 jest.mock('../../src/services/auditService', () => ({ logEvent: jest.fn(async () => ({})) }));
 jest.mock('../../src/services/simulatorService', () => ({ executeAction: jest.fn() }));
-jest.mock('../../src/services/outcomeFeedbackService', () => ({ recordOutcome: jest.fn(async () => ({})) }));
+jest.mock('../../src/services/outcomeFeedbackService', () => ({
+  recordOutcome: jest.fn(async () => ({})),
+  getHistoricalAdjustment: jest.fn(async () => 0),
+  getActionDiagnosisAdjustment: jest.fn(async () => ({ adjustment: 0, sampleCount: 0 })),
+}));
 jest.mock('../../src/services/customerResponseService', () => ({ markPromiseFulfilled: jest.fn(async () => ({})) }));
 
 const db = require('../../src/config/database');

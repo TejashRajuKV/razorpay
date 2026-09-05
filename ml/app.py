@@ -266,6 +266,19 @@ def evaluate_recovery():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/metrics', methods=['GET'])
+def all_metrics():
+    """Aggregate held-out evaluation metrics for every model."""
+    try:
+        return jsonify({
+            'risk': get_risk_model().evaluate(),
+            'diagnosis': get_diagnosis_model().evaluate(),
+            'recovery': get_recovery_model().evaluate(),
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('ML_PORT', 5001))
     debug = os.environ.get('NODE_ENV', 'development') == 'development'

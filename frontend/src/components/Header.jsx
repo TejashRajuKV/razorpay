@@ -94,7 +94,7 @@ export default function Header({
           top: 0;
           z-index: 100;
           background: #FFFEFA;
-          border-bottom: 1px solid #1A1A1A;
+          border-bottom: 1px solid #EFE7D8;
           padding: 14px 28px;
         }
 
@@ -183,8 +183,8 @@ export default function Header({
         }
 
         .nav-mode-btn.active {
-          background: #111110;
-          color: #fff;
+          background: #1E293B;
+          color: #F8FAFC;
           font-weight: 700;
         }
 
@@ -226,11 +226,11 @@ export default function Header({
           border-radius: 999px;
         }
         .header-actions .btn {
-          background: var(--teal);
+          background: #7ED6C0;
           color: #111110;
-          border: 1.5px solid #111110;
+          border: none;
           border-radius: 999px;
-          box-shadow: 2.5px 2.5px 0px #111110;
+          box-shadow: none;
           font-weight: 700;
         }
 

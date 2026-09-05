@@ -140,6 +140,11 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
   const safeCustomer = safeCase.customer || {};
   const safePayment = safeCase.payment || {};
   const safeDiagnosis = safeCase.diagnosis || {};
+  const recoveryProfile = decisionPreview?.customerProfile || {};
+  const recoveryScore = recoveryProfile.recoveryScore;
+  const recoveryTier = recoveryProfile.recoveryTier || 'UNKNOWN';
+  const recoveryBadgeBg = recoveryTier === 'HIGH' ? '#DCFCE7' : recoveryTier === 'MEDIUM' ? '#FEF3C7' : recoveryTier === 'LOW' ? '#FEE2E2' : '#F1F5F9';
+  const recoveryBadgeFg = recoveryTier === 'HIGH' ? '#166534' : recoveryTier === 'MEDIUM' ? '#92400E' : recoveryTier === 'LOW' ? '#991B1B' : '#475569';
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -265,6 +270,17 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
                 <div className="customer-tier">{safeCustomer.tier || 'GOLD'}</div>
               </div>
             </div>
+            {recoveryScore != null && (
+              <div className="context-row">
+                <span className="context-label">Recovery Score</span>
+                <span
+                  className="context-value"
+                  style={{ background: recoveryBadgeBg, color: recoveryBadgeFg, padding: '2px 10px', borderRadius: 999, fontWeight: 800 }}
+                >
+                  {recoveryScore} · {recoveryTier}
+                </span>
+              </div>
+            )}
             <div className="context-row">
               <span className="context-label">Lifetime Value</span>
               <span className="context-value">{formatINR(safeCustomer.lifetimeValue || 0)}</span>

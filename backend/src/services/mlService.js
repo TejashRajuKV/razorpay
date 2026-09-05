@@ -230,17 +230,26 @@ function getFallbackDiagnosis(caseData) {
   const successRate = successful_payments / total_payments;
   const paymentStatus = caseData.payment_status || caseData.status;
 
-  let diagnosis = 'temporary_failure';
+  let diagnosis = 'network_timeout';
   let confidence = 0.6;
 
-  if (failure_reason === 'invalid_upi_id' || failure_reason === 'card_expired') {
-    diagnosis = 'data_issue';
+  if (failure_reason === 'card_expired') {
+    diagnosis = 'card_expired';
+    confidence = 0.85;
+  } else if (failure_reason === 'invalid_upi_id') {
+    diagnosis = 'upi_pin_error';
+    confidence = 0.8;
+  } else if (failure_reason === 'insufficient_funds' || failure_reason === 'card_limit_exceeded') {
+    diagnosis = 'insufficient_funds';
     confidence = 0.75;
+  } else if (failure_reason === 'declined_by_bank') {
+    diagnosis = 'bank_decline';
+    confidence = 0.7;
   } else if (paymentStatus === 'abandoned') {
-    diagnosis = 'abandonment';
+    diagnosis = 'abandoned';
     confidence = 0.8;
   } else if (successRate < 0.5 && total_payments > 3) {
-    diagnosis = 'repeated_failure';
+    diagnosis = 'bank_decline';
     confidence = 0.7;
   }
   
@@ -266,24 +275,41 @@ function getFallbackRecoveryProbabilities(caseData, diagnosis) {
     stop: 0.05
   };
   
-  // Adjust based on diagnosis
+  // Adjust based on diagnosis (7 India-specific categories; legacy labels fall through to base)
   switch (diagnosis.diagnosis) {
+    case 'network_timeout':
     case 'temporary_failure':
       baseProbabilities.retry = 0.60;
       baseProbabilities.retry_later = 0.35;
       break;
-    case 'repeated_failure':
-      baseProbabilities.escalate = 0.40;
-      baseProbabilities.payment_link = 0.35;
-      baseProbabilities.retry = 0.20;
+    case 'insufficient_funds':
+      baseProbabilities.reminder = 0.45;
+      baseProbabilities.retry_later = 0.35;
+      baseProbabilities.retry = 0.25;
       break;
+    case 'card_expired':
     case 'data_issue':
       baseProbabilities.payment_link = 0.50;
       baseProbabilities.reminder = 0.35;
       break;
+    case 'upi_pin_error':
+      baseProbabilities.reminder = 0.45;
+      baseProbabilities.retry = 0.30;
+      break;
+    case 'bank_decline':
+    case 'repeated_failure':
+      baseProbabilities.escalate = 0.40;
+      baseProbabilities.retry_later = 0.35;
+      baseProbabilities.retry = 0.20;
+      break;
+    case 'abandoned':
     case 'abandonment':
       baseProbabilities.reminder = 0.40;
       baseProbabilities.payment_link = 0.45;
+      break;
+    case 'data_error':
+      baseProbabilities.escalate = 0.50;
+      baseProbabilities.retry = 0.10;
       break;
   }
   

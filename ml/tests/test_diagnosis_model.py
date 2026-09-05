@@ -7,7 +7,8 @@ from src.diagnosis_model import DiagnosisModel, CATEGORIES
 
 
 def test_categories():
-    assert set(CATEGORIES) == {'temporary_failure', 'repeated_failure', 'data_issue', 'abandonment'}
+    assert set(CATEGORIES) == {'network_timeout', 'insufficient_funds', 'card_expired',
+                               'upi_pin_error', 'bank_decline', 'abandoned', 'data_error'}
 
 
 def test_predict_shape():
@@ -22,7 +23,7 @@ def test_predict_shape():
 def test_abandonment_signal():
     m = DiagnosisModel().initialize()
     r = m.predict({'failure_reason': 'unknown', 'payment_status': 'abandoned'})
-    assert r['diagnosis'] == 'abandonment'
+    assert r['diagnosis'] == 'abandoned'
 
 
 def test_evaluate_real_metrics_or_honest_error():

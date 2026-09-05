@@ -61,6 +61,7 @@ export default function SimulatorPage({
       scenarioKey === 'VIKRAM_ENTERPRISE' ? c.id === 'REC-1045' : c.id === 'REC-1046'
     ) || cases[0];
 
+    if (!targetCase) return;
     setDebugCase(targetCase);
     setDebugLog([
       `Injected scenario: ${targetCase.customer.name} (${targetCase.id})`,
@@ -103,6 +104,17 @@ export default function SimulatorPage({
     setDebugStep(1);
     setDebugLog(["Reset debugger to initial detection stage."]);
   };
+
+  if (!debugCase) {
+    return (
+      <div className="simulator-page">
+        <div className="porcelain-card" style={{ padding: 32, textAlign: 'center' }}>
+          <h2>No case data available</h2>
+          <p>Backend is unreachable or has not returned any recovery cases. No data is shown.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="simulator-page">

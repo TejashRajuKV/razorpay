@@ -1,5 +1,8 @@
 jest.mock('../../src/config/database', () => ({ query: jest.fn(async () => []) }));
-jest.mock('../../src/services/outcomeFeedbackService', () => ({ getHistoricalAdjustment: jest.fn(async () => 0) }));
+jest.mock('../../src/services/outcomeFeedbackService', () => ({
+  getHistoricalAdjustment: jest.fn(async () => 0),
+  getActionDiagnosisAdjustment: jest.fn(async () => ({ adjustment: 0, sampleCount: 0 })),
+}));
 jest.mock('../../src/services/simulatorService', () => ({ executeAction: jest.fn() }));
 const recoveryService = require('../../src/services/recoveryService');
 

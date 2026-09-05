@@ -17,19 +17,23 @@ const db = require('../config/database');
  * @param {Object} [event.newState] - State after change
  * @param {String} [event.userOrSystem] - Who triggered the event
  * @param {String} [event.ipAddress] - IP address of requester
+ * @param {String} [event.traceId] - Recovery-cycle trace ID linking related events
+ * @param {String} [event.modelVersion] - ML model version behind the decision
+ * @param {Object} [event.beforeState] - Case state before the change
+ * @param {Object} [event.afterState] - Case state after the change
  * @returns {Promise<String>} Created audit log ID
  */
 async function logEvent(event) {
   const logId = uuidv4();
-  
-  const insertQuery = `
-    INSERT INTO audit_logs 
-    (id, entity_type, entity_id, event_type, event_data, 
-     previous_state, new_state, user_or_system, ip_address)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+
+  const fullQuery = `
+    INSERT INTO audit_logs
+    (id, entity_type, entity_id, event_type, event_data,
+     previous_state, new_state, user_or_system, ip_address,
+     trace_id, model_version, before_state, after_state)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
-  
-  await db.query(insertQuery, [
+  const fullParams = [
     logId,
     event.entityType,
     event.entityId,
@@ -38,9 +42,30 @@ async function logEvent(event) {
     event.previousState ? JSON.stringify(event.previousState) : null,
     event.newState ? JSON.stringify(event.newState) : null,
     event.userOrSystem || 'system',
-    event.ipAddress || null
-  ]);
-  
+    event.ipAddress || null,
+    event.traceId || event.trace_id || null,
+    event.modelVersion || event.model_version || null,
+    event.beforeState ? JSON.stringify(event.beforeState) : null,
+    event.afterState ? JSON.stringify(event.afterState) : null
+  ];
+
+  try {
+    await db.query(fullQuery, fullParams);
+  } catch (err) {
+    // Older DBs without the trace columns — legacy insert
+    if (/no such column|no column|undefined column/i.test(err.message)) {
+      await db.query(
+        `INSERT INTO audit_logs
+         (id, entity_type, entity_id, event_type, event_data,
+          previous_state, new_state, user_or_system, ip_address)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        fullParams.slice(0, 9)
+      );
+    } else {
+      throw err;
+    }
+  }
+
   return logId;
 }
 
@@ -135,6 +160,10 @@ async function getCaseAuditTrail(caseId) {
       eventData: typeof log.event_data === 'string' ? JSON.parse(log.event_data) : log.event_data,
       previousState: log.previous_state ? (typeof log.previous_state === 'string' ? JSON.parse(log.previous_state) : log.previous_state) : null,
       newState: log.new_state ? (typeof log.new_state === 'string' ? JSON.parse(log.new_state) : log.new_state) : null,
+      traceId: log.trace_id || null,
+      modelVersion: log.model_version || null,
+      beforeState: log.before_state ? (typeof log.before_state === 'string' ? JSON.parse(log.before_state) : log.before_state) : null,
+      afterState: log.after_state ? (typeof log.after_state === 'string' ? JSON.parse(log.after_state) : log.after_state) : null,
       userOrSystem: log.user_or_system
     }))
   };

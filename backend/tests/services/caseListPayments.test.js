@@ -11,10 +11,19 @@ describe('case list payment data', () => {
       { id: 'c2', payment_method: 'credit_card', payment_status: 'failed', failure_reason: 'declined_by_bank', payment_amount: 200, payment_id: 'p2' },
     ]);
     const rows = await recoveryService.getRecoveryCases({});
-    expect(db.query.mock.calls[0][0]).toMatch(/JOIN payments p ON/i);
-    expect(db.query.mock.calls[0][0]).toMatch(/payment_method/);
+    const sql = db.query.mock.calls[0][0];
+    expect(sql).toMatch(/LEFT JOIN payments p ON/i);
+    expect(sql).toMatch(/payment_method/);
+    expect(sql).toMatch(/payment_status/);
+    expect(sql).toMatch(/failure_reason/);
+    expect(sql).toMatch(/payment_amount/);
     expect(rows[0].payment_method).toBe('upi');
+    expect(rows[0].payment_status).toBe('failed');
+    expect(rows[0].failure_reason).toBe('bank_error');
+    expect(Number(rows[0].payment_amount)).toBe(100);
     expect(rows[1].payment_method).toBe('credit_card');
+    expect(rows[1].failure_reason).toBe('declined_by_bank');
+    expect(Number(rows[1].payment_amount)).toBe(200);
     expect(rows[1].payment_id).toBe('p2');
   });
 });

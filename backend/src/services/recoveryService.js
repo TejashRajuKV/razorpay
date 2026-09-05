@@ -5,6 +5,7 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 const db = require('../config/database');
 const auditService = require('./auditService');
 const simulatorService = require('./simulatorService');
@@ -63,32 +64,59 @@ async function detectRevenueAtRisk() {
  */
 async function createRecoveryCase(payment, diagnosis, riskAssessment) {
   const caseId = uuidv4();
+  const traceId = uuidv4();
   const priorityScore = calculatePriorityScore(
     payment.amount,
     riskAssessment.riskProbability,
     diagnosis.confidence
   );
-  
-  const insertQuery = `
-    INSERT INTO recovery_cases 
-    (id, payment_id, customer_id, amount_at_risk, risk_probability, 
-     diagnosis, diagnosis_factors, priority_score, status, recommended_action)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `;
-  
-  await db.query(insertQuery, [
-    caseId,
-    payment.payment_id,
-    payment.customer_id,
-    payment.amount,
-    riskAssessment.riskProbability,
-    diagnosis.diagnosis,
-    JSON.stringify(diagnosis.factors),
-    priorityScore,
-    'open',
-    null // Will be set after decision
-  ]);
-  
+
+  try {
+    await db.query(
+      `INSERT INTO recovery_cases
+       (id, payment_id, customer_id, trace_id, amount_at_risk, risk_probability,
+        diagnosis, diagnosis_factors, priority_score, status, recommended_action)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        caseId,
+        payment.payment_id,
+        payment.customer_id,
+        traceId,
+        payment.amount,
+        riskAssessment.riskProbability,
+        diagnosis.diagnosis,
+        JSON.stringify(diagnosis.factors),
+        priorityScore,
+        'open',
+        null // Will be set after decision
+      ]
+    );
+  } catch (err) {
+    // Older DBs without trace_id — legacy insert
+    if (/no such column|no column|undefined column/i.test(err.message)) {
+      await db.query(
+        `INSERT INTO recovery_cases
+         (id, payment_id, customer_id, amount_at_risk, risk_probability,
+          diagnosis, diagnosis_factors, priority_score, status, recommended_action)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          caseId,
+          payment.payment_id,
+          payment.customer_id,
+          payment.amount,
+          riskAssessment.riskProbability,
+          diagnosis.diagnosis,
+          JSON.stringify(diagnosis.factors),
+          priorityScore,
+          'open',
+          null
+        ]
+      );
+    } else {
+      throw err;
+    }
+  }
+
   // Audit log for case creation
   await auditService.logEvent({
     entityType: 'case',
@@ -99,11 +127,14 @@ async function createRecoveryCase(payment, diagnosis, riskAssessment) {
       amount: payment.amount,
       customer_id: payment.customer_id
     },
-    newState: { status: 'open' }
+    newState: { status: 'open' },
+    traceId,
+    modelVersion: diagnosis.modelVersion || riskAssessment.modelVersion || null
   });
-  
+
   return {
     id: caseId,
+    traceId,
     ...payment,
     amountAtRisk: payment.amount,
     riskProbability: riskAssessment.riskProbability,
@@ -194,10 +225,33 @@ async function decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnos
     .map(async ([action, p]) => {
       const baseProbability = parseFloat(p) || 0;
       const adjustment = await outcomeFeedbackService.getHistoricalAdjustment(recoveryCase.customer_id, action);
-      const probability = Math.max(0, Math.min(0.95, Math.round((baseProbability + adjustment) * 10000) / 10000));
-      return { action, probability, baseProbability, historicalAdjustment: adjustment, expectedRecovery: Math.round(probability * amount * 100) / 100 };
+      const actionFeedback = await outcomeFeedbackService.getActionDiagnosisAdjustment(action, diagnosis);
+      const combined = Math.max(-0.10, Math.min(0.10, adjustment + actionFeedback.adjustment));
+      const probability = Math.max(0, Math.min(0.95, Math.round((baseProbability + combined) * 10000) / 10000));
+      return {
+        action, probability, baseProbability,
+        historicalAdjustment: adjustment,
+        actionDiagnosisAdjustment: actionFeedback.adjustment,
+        actionDiagnosisSamples: actionFeedback.sampleCount,
+        expectedRecovery: Math.round(probability * amount * 100) / 100
+      };
     }));
-  candidates.sort((a, b) => b.expectedRecovery - a.expectedRecovery || b.probability - a.probability);
+  // Action fatigue: repeating a recent action gets a 40% expected-value penalty
+  let recentActionTypes = [];
+  if (recoveryCase.id) {
+    try {
+      const recent = await db.query(
+        'SELECT action_type FROM recovery_actions WHERE case_id = ? ORDER BY created_at DESC LIMIT 3',
+        [recoveryCase.id]
+      );
+      recentActionTypes = recent.map((r) => r.action_type);
+    } catch { /* fatigue is advisory — rank without it */ }
+  }
+  for (const c of candidates) {
+    c.fatiguePenalty = recentActionTypes.includes(c.action) ? 0.6 : 1.0;
+    c.adjustedExpectedRecovery = Math.round(c.expectedRecovery * c.fatiguePenalty * 100) / 100;
+  }
+  candidates.sort((a, b) => b.adjustedExpectedRecovery - a.adjustedExpectedRecovery || b.probability - a.probability);
   const probe = {
     ...recoveryCase,
     amount_at_risk: amount,
@@ -219,6 +273,21 @@ async function decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnos
     ? { action: evaluations[0].action, reason: evaluations[0].reason }
     : (blockedActions[0] || null);
   const selected = candidates.find((c) => evaluations.find((e) => e.action === c.action && e.allowed));
+  // Counterfactual: why each non-selected action was rejected
+  const rejected = candidates
+    .filter((c) => !selected || c.action !== selected.action)
+    .map((c) => {
+      const evalEntry = evaluations.find((e) => e.action === c.action);
+      let whyNot = 'Below expected recovery of selected action';
+      if (evalEntry && !evalEntry.allowed) {
+        whyNot = `Guardrail blocked: ${evalEntry.reason}`;
+      } else if (selected && c.adjustedExpectedRecovery >= selected.adjustedExpectedRecovery) {
+        whyNot = 'Allowed but ranked below selected action on tie-break';
+      } else if (selected) {
+        whyNot = `Lower expected recovery (Rs.${c.adjustedExpectedRecovery} vs Rs.${selected.adjustedExpectedRecovery})`;
+      }
+      return { action: c.action, expectedRecovery: c.adjustedExpectedRecovery, whyNot };
+    });
   if (selected) {
     return {
       ...selected,
@@ -235,6 +304,7 @@ async function decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnos
       }),
       blocked: blockedTop,
       candidates,
+      rejected,
       guardrails
     };
   }
@@ -254,6 +324,7 @@ async function decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnos
     }),
     blocked: blockedTop,
     candidates,
+    rejected,
     guardrails,
     allowed: false
   };
@@ -281,7 +352,19 @@ async function executeRecoveryAction(caseId, actionType, context = {}) {
   }
   
   const recoveryCase = cases[0];
-  
+
+  // Emergency global stop — checked before everything else
+  if (await isGlobalStopActive()) {
+    await auditService.logEvent({
+      entityType: 'action',
+      entityId: caseId,
+      eventType: 'safety_check_blocked',
+      eventData: { action_type: actionType, case_id: caseId, reason: 'GLOBAL_STOP_ACTIVE' },
+      newState: { status: 'blocked' }
+    });
+    return { success: false, blocked: true, reason: 'GLOBAL_STOP_ACTIVE', action: actionType, caseId };
+  }
+
   // Check stopping rules (backend-enforced, always audited)
   const stopCheck = await checkStoppingRules(recoveryCase, actionType);
   if (!stopCheck.allowed) {
@@ -301,27 +384,71 @@ async function executeRecoveryAction(caseId, actionType, context = {}) {
     };
   }
   
-  // Create action record
+  // Create action record (incentive decided up-front so ROI can read it from SQL)
   const actionId = uuidv4();
   const attemptNumber = await getCurrentAttemptCount(caseId);
-  
+
+  // Idempotency: same case + action + attempt must never execute twice
+  const idemKey = idempotencyKey(caseId, actionType, attemptNumber + 1);
+  try {
+    const existing = await db.query(
+      'SELECT id FROM recovery_actions WHERE idempotency_key = ?', [idemKey]
+    );
+    if (existing.length > 0) {
+      return {
+        success: false, blocked: true, reason: 'DUPLICATE_ACTION',
+        existingId: existing[0].id, action: actionType, caseId
+      };
+    }
+  } catch { /* older DBs without the column — proceed without dedupe */ }
+
+  let incentiveAmount = 0;
+  let incentiveType = 'none';
+  try {
+    const incentive = incentiveService.recommendIncentive({
+      amount: parseFloat(recoveryCase.amount_at_risk) || 0,
+      probability: parseFloat(context.predictedProbability ?? 0) || 0,
+      diagnosis: recoveryCase.diagnosis || 'unknown'
+    });
+    incentiveAmount = incentive.incentiveAmount || 0;
+    incentiveType = incentive.recommendedIncentive || 'none';
+  } catch { /* incentive is advisory — never blocks execution */ }
+
   const insertActionQuery = `
-    INSERT INTO recovery_actions 
-    (id, case_id, action_type, action_status, attempt_number, cooldown_until)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO recovery_actions
+    (id, case_id, action_type, action_status, attempt_number, cooldown_until,
+     incentive_amount, incentive_type, idempotency_key)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
-  
+
   const cooldownUntil = new Date();
   cooldownUntil.setMinutes(cooldownUntil.getMinutes() + CONFIG.RETRY_COOLDOWN_MINUTES);
-  
-  await db.query(insertActionQuery, [
-    actionId,
-    caseId,
-    actionType,
-    'executed',
-    attemptNumber + 1,
-    cooldownUntil.toISOString()
-  ]);
+
+  try {
+    await db.query(insertActionQuery, [
+      actionId,
+      caseId,
+      actionType,
+      'executed',
+      attemptNumber + 1,
+      cooldownUntil.toISOString(),
+      incentiveAmount,
+      incentiveType,
+      idemKey
+    ]);
+  } catch (err) {
+    // Older DBs without the new columns — retry with the legacy column set
+    if (/no such column|no column|undefined column/i.test(err.message)) {
+      await db.query(
+        `INSERT INTO recovery_actions
+         (id, case_id, action_type, action_status, attempt_number, cooldown_until)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [actionId, caseId, actionType, 'executed', attemptNumber + 1, cooldownUntil.toISOString()]
+      );
+    } else {
+      throw err;
+    }
+  }
   
   // Execute action through simulator
   let result;
@@ -373,7 +500,8 @@ async function executeRecoveryAction(caseId, actionType, context = {}) {
         attempt: attemptNumber + 1,
         case_id: caseId
       },
-      newState: { status: result.success ? 'success' : 'failed' }
+      newState: { status: result.success ? 'success' : 'failed' },
+      traceId: recoveryCase.trace_id || recoveryCase.traceId || null
     });
     
     return {
@@ -402,6 +530,29 @@ async function executeRecoveryAction(caseId, actionType, context = {}) {
   }
 }
 
+// Customer-contact actions (messaging/outreach) — barred during quiet hours
+const CONTACT_ACTIONS = ['reminder', 'payment_link', 'escalate'];
+
+function isQuietHours(now = new Date()) {
+  const istHour = new Date(now.getTime() + 5.5 * 3600000).getUTCHours();
+  return istHour >= 22 || istHour < 8;
+}
+
+function idempotencyKey(caseId, actionType, attemptNumber) {
+  return crypto.createHash('sha256')
+    .update(`${caseId}:${actionType}:${attemptNumber}`)
+    .digest('hex').slice(0, 32);
+}
+
+async function isGlobalStopActive() {
+  try {
+    const rows = await db.query("SELECT value FROM system_config WHERE key = 'global_stop'");
+    return rows[0]?.value === 'true';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Check stopping rules before executing an action (backend-enforced).
  */
@@ -412,6 +563,10 @@ async function checkStoppingRules(recoveryCase, actionType) {
   }
   if (status === 'stopped') {
     return { allowed: false, reason: 'Case already stopped — no further actions allowed' };
+  }
+  // Quiet hours: no customer contact between 22:00–08:00 IST
+  if (CONTACT_ACTIONS.includes(actionType) && isQuietHours()) {
+    return { allowed: false, reason: 'QUIET_HOURS: No customer contact between 22:00–08:00 IST' };
   }
   // Low recovery probability guard (explicit recovery_probability only, never priority_score)
   const probRaw = recoveryCase.recovery_probability ?? recoveryCase.recoveryProbability;
@@ -571,7 +726,7 @@ async function getRecoveryCases(filters = {}) {
       p.amount AS payment_amount, p.id AS payment_id
     FROM recovery_cases rc
     JOIN customers c ON rc.customer_id = c.id
-    JOIN payments p ON rc.payment_id = p.id
+    LEFT JOIN payments p ON rc.payment_id = p.id
     ${whereClause}
     ORDER BY rc.priority_score DESC, rc.created_at ASC
   `;
@@ -662,5 +817,9 @@ module.exports = {
   evaluateActionPolicy,
   getRecoveryConfidence,
   getPriorityScore,
+  isQuietHours,
+  isGlobalStopActive,
+  idempotencyKey,
+  CONTACT_ACTIONS,
   CONFIG
 };
