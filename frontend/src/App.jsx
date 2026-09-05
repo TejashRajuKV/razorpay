@@ -263,8 +263,7 @@ export default function App() {
     return { recovered: false, amount: 0, message: noResult };
   };
 
-  // Trigger batch recovery on REAL cases — outcomes persist to the DB
-  // (synthetic simulate-batch never touches real data, so it cannot move recovery metrics)
+  // Trigger batch recovery on REAL cases — outcomes persist to the DB via POST /recovery/run-batch
   const handleTriggerBatch = async () => {
     setIsBatchRunning(true);
     setCurrentView('dashboard');

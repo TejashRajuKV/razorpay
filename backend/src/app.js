@@ -22,7 +22,6 @@ const casesRoutes = require('./routes/casesRoutes');
 const recoveryRoutes = require('./routes/recoveryRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const auditRoutes = require('./routes/auditRoutes');
-const simulatorRoutes = require('./routes/simulatorRoutes');
 
 // Initialize Express app
 const app = express();
@@ -40,10 +39,14 @@ app.use(cors({
   credentials: true
 }));
 
-// Rate limiting
+// Rate limiting — strict limits are production-only; local dev/demo traffic
+// (polling, batch runs, per-case ML calls) exceeds a 100/15min budget in normal use
+const isDevelopment = (process.env.NODE_ENV || 'development') === 'development';
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
+  limit: isDevelopment
+    ? (parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 5000)
+    : (parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100),
   message: { error: 'Too many requests, please try again later' }
 });
 app.use('/api/', limiter);
@@ -81,7 +84,6 @@ app.use(`${apiBase}/cases`, casesRoutes);
 app.use(`${apiBase}/recovery`, recoveryRoutes);
 app.use(`${apiBase}/analytics`, analyticsRoutes);
 app.use(`${apiBase}/audit`, auditRoutes);
-app.use(`${apiBase}/simulator`, simulatorRoutes);
 
 // 404 handler
 app.use((req, res) => {

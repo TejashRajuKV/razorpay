@@ -21,6 +21,29 @@ const dbPathRaw = process.env.DB_PATH || path.join(__dirname, '../../data/revenu
 // Relative DB_PATH is resolved against the backend root (matches config/database.js usage)
 const dbPath = path.isAbsolute(dbPathRaw) ? dbPathRaw : path.join(__dirname, '../..', dbPathRaw);
 
+// Backup existing database before deletion (if it exists)
+if (fs.existsSync(dbPath)) {
+  const backupPath = dbPath + '.backup.' + Date.now();
+  try {
+    // Copy main database file
+    fs.copyFileSync(dbPath, backupPath);
+    console.log('[Seed] Backup created:', backupPath);
+    
+    // Also backup WAL files if they exist
+    for (const suffix of ['-wal', '-shm']) {
+      const sourceFile = dbPath + suffix;
+      const backupFile = backupPath + suffix;
+      if (fs.existsSync(sourceFile)) {
+        fs.copyFileSync(sourceFile, backupFile);
+        console.log('[Seed] Backup created:', backupFile);
+      }
+    }
+  } catch (error) {
+    console.error('[Seed] Warning: Failed to create backup:', error.message);
+    console.log('[Seed] Proceeding with deletion without backup...');
+  }
+}
+
 // Remove existing database (and WAL sidecars) to ensure a clean rebuild
 for (const suffix of ['', '-wal', '-shm']) {
   const file = dbPath + suffix;

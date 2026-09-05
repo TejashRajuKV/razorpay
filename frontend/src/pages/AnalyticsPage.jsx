@@ -11,7 +11,7 @@ import {
   ArrowUpRight,
   Activity
 } from 'lucide-react';
-import { analyticsAPI } from '../services/api';
+import { analyticsAPI, dashboardAPI } from '../services/api';
 
 export default function AnalyticsPage({ metrics, onViewAlertCases, onGoSimulator }) {
   const [advanced, setAdvanced] = useState(null);
@@ -21,6 +21,28 @@ export default function AnalyticsPage({ metrics, onViewAlertCases, onGoSimulator
   const [waterfall, setWaterfall] = useState(null);
   const [trendRange, setTrendRange] = useState('7d');
   const [trends, setTrends] = useState(null);
+  const [byActionDetail, setByActionDetail] = useState(null);
+  const [failureReasons, setFailureReasons] = useState(null);
+  const [segments, setSegments] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [actRes, reasonRes, segRes] = await Promise.all([
+          analyticsAPI.getByAction().catch(() => null),
+          analyticsAPI.getFailureReasons().catch(() => null),
+          dashboardAPI.getCustomerSegments().catch(() => null),
+        ]);
+        if (!cancelled) {
+          if (actRes?.success && Array.isArray(actRes.data?.byAction)) setByActionDetail(actRes.data.byAction);
+          if (reasonRes?.success && Array.isArray(reasonRes.data?.byFailureReason)) setFailureReasons(reasonRes.data.byFailureReason);
+          if (segRes?.success && Array.isArray(segRes.data?.segments)) setSegments(segRes.data.segments);
+        }
+      } catch { /* tables below fall back to overview-derived rows */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -163,6 +185,11 @@ export default function AnalyticsPage({ metrics, onViewAlertCases, onGoSimulator
             <span className="ml-note">Net / cost</span>
           </div>
           <div className="porcelain-card ml-stat-card">
+            <span className="ml-label">Cost / Recovered ₹</span>
+            <div className="ml-val orange">{advanced.costPerRecoveredRupee != null ? `₹${advanced.costPerRecoveredRupee}` : '—'}</div>
+            <span className="ml-note">Spend per rupee recovered</span>
+          </div>
+          <div className="porcelain-card ml-stat-card">
             <span className="ml-label">Blocked / Escalations</span>
             <div className="ml-val orange">{advanced.blockedActions} / {advanced.humanEscalations}</div>
             <span className="ml-note">Guardrail activity</span>
@@ -303,7 +330,41 @@ export default function AnalyticsPage({ metrics, onViewAlertCases, onGoSimulator
           </div>
 
           <div className="channel-table-container">
-            {liveActions.length > 0 ? (
+            {(() => {
+              const rows = (Array.isArray(byActionDetail) && byActionDetail.length > 0
+                ? byActionDetail.map((r) => ({
+                    action: r.action_type,
+                    attempts: r.total_attempts,
+                    successes: r.successful,
+                    failed: r.failed,
+                    rate: Number(r.success_rate) || 0,
+                    revenue: Number(r.total_recovered) || 0,
+                    avg: Number(r.avg_recovery) || 0,
+                  }))
+                : liveActions.map((item) => ({
+                    action: item.action_type,
+                    attempts: item.attempts,
+                    successes: item.successes,
+                    failed: null,
+                    rate: Number(item.success_rate) || 0,
+                    revenue: Number(item.recovered_amount) || 0,
+                    avg: null,
+                  })));
+              if (rows.length === 0) {
+                return (
+                  <div style={{ padding: '12px 0', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    <p className="card-sub" style={{ margin: 0 }}>
+                      No recovery actions yet — run a batch simulation to populate analytics.
+                    </p>
+                    {onGoSimulator && (
+                      <button className="btn btn-primary btn-sm" onClick={onGoSimulator}>
+                        <span>Go to Simulator</span>
+                      </button>
+                    )}
+                  </div>
+                );
+              }
+              return (
             <table className="custom-table">
               <thead>
                 <tr>
@@ -312,39 +373,31 @@ export default function AnalyticsPage({ metrics, onViewAlertCases, onGoSimulator
                   <th>Successes</th>
                   <th>Success Rate</th>
                   <th>Recovered (₹)</th>
+                  <th>Avg / Attempt (₹)</th>
                 </tr>
               </thead>
               <tbody>
-                {liveActions.map((item, idx) => (
+                {rows.map((item, idx) => (
                   <tr key={idx}>
-                    <td className="font-weight-600">{item.action_type}</td>
+                    <td className="font-weight-600">{item.action}</td>
                     <td>{item.attempts}</td>
-                    <td>{item.successes}</td>
+                    <td>{item.successes}{item.failed != null ? ` (${item.failed} failed)` : ''}</td>
                     <td>
                       <div className="rate-cell">
-                        <span className="rate-number">{Number(item.success_rate || 0).toFixed(1)}%</span>
+                        <span className="rate-number">{Number(item.rate || 0).toFixed(1)}%</span>
                         <div className="rate-bar-bg">
-                          <div className="rate-bar-fill" style={{ width: `${Math.min(100, Number(item.success_rate) || 0)}%` }} />
+                          <div className="rate-bar-fill" style={{ width: `${Math.min(100, Number(item.rate) || 0)}%` }} />
                         </div>
                       </div>
                     </td>
-                    <td className="font-mono font-weight-700 emerald-text">{formatINR(Number(item.recovered_amount) || 0)}</td>
+                    <td className="font-mono font-weight-700 emerald-text">{formatINR(item.revenue)}</td>
+                    <td className="font-mono">{item.avg != null ? formatINR(item.avg) : '—'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            ) : (
-              <div style={{ padding: '12px 0', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <p className="card-sub" style={{ margin: 0 }}>
-                  No recovery actions yet — run a batch simulation to populate analytics.
-                </p>
-                {onGoSimulator && (
-                  <button className="btn btn-primary btn-sm" onClick={onGoSimulator}>
-                    <span>Go to Simulator</span>
-                  </button>
-                )}
-              </div>
-            )}
+              );
+            })()}
           </div>
         </div>
 
@@ -358,36 +411,91 @@ export default function AnalyticsPage({ metrics, onViewAlertCases, onGoSimulator
           </div>
 
           <div className="cause-list">
-            {liveDiagnoses.length > 0 ? liveDiagnoses.map((cause, idx) => {
-              const pct = totalDiagnosed > 0 ? (Number(cause.total) / totalDiagnosed) * 100 : 0;
-              return (
+            {(() => {
+              const useReasons = Array.isArray(failureReasons) && failureReasons.length > 0;
+              const reasonTotal = useReasons
+                ? failureReasons.reduce((s, r) => s + (Number(r.case_count) || 0), 0)
+                : 0;
+              const items = useReasons
+                ? failureReasons.map((r) => ({
+                    name: r.failure_reason,
+                    pct: reasonTotal > 0 ? ((Number(r.case_count) || 0) / reasonTotal) * 100 : 0,
+                    count: r.case_count,
+                    rate: Number(r.recovery_rate) || 0,
+                    atRisk: Number(r.total_at_risk) || 0,
+                  }))
+                : liveDiagnoses.map((cause) => ({
+                    name: cause.diagnosis,
+                    pct: totalDiagnosed > 0 ? (Number(cause.total) / totalDiagnosed) * 100 : 0,
+                    count: cause.total,
+                    rate: Number(cause.success_rate) || 0,
+                    atRisk: null,
+                  }));
+              if (items.length === 0) {
+                return (
+                  <p className="card-sub" style={{ padding: '12px 0' }}>
+                    No diagnosis data from backend yet. No data is shown.
+                  </p>
+                );
+              }
+              return items.map((cause, idx) => (
               <div key={idx} className="cause-item">
                 <div className="cause-row-top">
-                  <span className="cause-name">{cause.diagnosis}</span>
-                  <span className="cause-pct">{pct.toFixed(1)}% of all failures</span>
+                  <span className="cause-name">{cause.name}</span>
+                  <span className="cause-pct">{cause.pct.toFixed(1)}% of all failures</span>
                 </div>
                 <div className="cause-bar-bg">
                   <div
                     className="cause-bar-fill"
                     style={{
-                      width: `${Math.min(100, pct * 2)}%`,
+                      width: `${Math.min(100, cause.pct * 2)}%`,
                     }}
                   />
                 </div>
                 <div className="cause-footer">
-                  <span>Count: {cause.total} cases</span>
-                  <span className="recoverability">Avg Recoverability: <strong>{Number(cause.success_rate || 0).toFixed(1)}%</strong></span>
+                  <span>Count: {cause.count} cases</span>
+                  <span className="recoverability">Avg Recoverability: <strong>{Number(cause.rate || 0).toFixed(1)}%</strong></span>
+                  {cause.atRisk != null && <span>At risk: {formatINR(cause.atRisk)}</span>}
                 </div>
               </div>
-              );
-            }) : (
-              <p className="card-sub" style={{ padding: '12px 0' }}>
-                No diagnosis data from backend yet. No data is shown.
-              </p>
-            )}
+              ));
+            })()}
           </div>
         </div>
       </div>
+
+      {Array.isArray(segments) && segments.length > 0 && (
+        <div className="porcelain-card channel-card">
+          <div className="card-header">
+            <div>
+              <h3 className="card-title">Recovery by Customer Segment</h3>
+              <p className="card-sub">Revenue at risk and recovered per segment, from live case data.</p>
+            </div>
+          </div>
+          <div className="channel-table-container">
+            <table className="custom-table">
+              <thead>
+                <tr>
+                  <th>Segment</th>
+                  <th>Customers</th>
+                  <th>At Risk (₹)</th>
+                  <th>Recovered (₹)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {segments.map((s, idx) => (
+                  <tr key={idx}>
+                    <td className="font-weight-600">{s.customer_segment || 'Unknown'}</td>
+                    <td>{s.customer_count ?? '—'}</td>
+                    <td className="font-mono">{formatINR(Number(s.revenue_at_risk) || 0)}</td>
+                    <td className="font-mono font-weight-700 emerald-text">{formatINR(Number(s.recovered) || 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <style>{`
         .analytics-page {

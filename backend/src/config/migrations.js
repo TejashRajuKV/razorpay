@@ -30,6 +30,15 @@ async function ensureColumn(table, column, ddl) {
   }
 }
 
+async function ensureUniqueIndex(name, table, column) {
+  try {
+    await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS ${name} ON ${table} (${column})`);
+    console.log(`[Migrate] Ensured unique index ${name}`);
+  } catch (err) {
+    console.warn(`[Migrate] Skipped index ${name}:`, err.message);
+  }
+}
+
 async function runMigrations() {
   try {
     await db.query(`CREATE TABLE IF NOT EXISTS action_probability_adjustments (
@@ -48,6 +57,7 @@ async function runMigrations() {
     await ensureColumn('recovery_actions', 'incentive_amount', 'DECIMAL(10, 2) DEFAULT 0.00');
     await ensureColumn('recovery_actions', 'incentive_type', "VARCHAR(50) DEFAULT 'none'");
     await ensureColumn('recovery_actions', 'idempotency_key', 'VARCHAR(64)');
+    await ensureUniqueIndex('idx_recovery_actions_idempotency', 'recovery_actions', 'idempotency_key');
     await ensureColumn('recovery_cases', 'trace_id', 'VARCHAR(36)');
     await ensureColumn('audit_logs', 'trace_id', 'VARCHAR(36)');
     await ensureColumn('audit_logs', 'model_version', 'VARCHAR(50)');

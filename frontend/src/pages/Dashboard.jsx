@@ -262,7 +262,7 @@ export default function Dashboard({
           <div className="cycle-visual-card">
             <div className="cycle-card-header">
               <span className="cycle-title">Current Agent State</span>
-              <span className="cycle-clock"><Clock size={12} /> Real-time</span>
+              <span className="cycle-clock"><Clock size={12} /> Live Status</span>
             </div>
 
             <div className="cycle-flow-steps">

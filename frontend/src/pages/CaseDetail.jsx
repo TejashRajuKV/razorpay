@@ -285,11 +285,11 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
         </div>
         <div className="metric-card">
           <span className="metric-label">Expected Recovery</span>
-          <span className="metric-value">{formatINR(safeDecision.expectedRecovery || safePayment.amount * 0.7)}</span>
+          <span className="metric-value">{safeDecision.expectedRecovery != null ? formatINR(safeDecision.expectedRecovery) : '—'}</span>
         </div>
         <div className="metric-card">
           <span className="metric-label">Recovery Probability</span>
-          <span className="metric-value">{Math.round((safeDecision.recoveryProbability || 0.5) * 100)}%</span>
+          <span className="metric-value">{safeDecision.recoveryProbability != null ? `${Math.round(safeDecision.recoveryProbability * 100)}%` : '—'}</span>
         </div>
         <div className="metric-card">
           <span className="metric-label">Recovery Attempts</span>
@@ -358,7 +358,7 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
             </div>
             <div className="context-row">
               <span className="context-label">Success Rate</span>
-              <span className="context-value">{Math.round((safeCustomer.historicalSuccessRate || 0.7) * 100)}%</span>
+              <span className="context-value">{safeCustomer.historicalSuccessRate != null ? `${Math.round(safeCustomer.historicalSuccessRate * 100)}%` : '—'}</span>
             </div>
             <div className="context-row">
               <span className="context-label">Email</span>
@@ -377,9 +377,11 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
         <h3 className="section-title">
           <Bot size={20} className="section-icon" />
           <span>AI Diagnosis</span>
-          <span className="confidence-badge">
-            {Math.round((safeDiagnosis.confidence || 0.8) * 100)}% confidence
-          </span>
+          {safeDiagnosis.confidence != null && (
+            <span className="confidence-badge">
+              {`${Math.round(safeDiagnosis.confidence * 100)}% confidence`}
+            </span>
+          )}
         </h3>
         
         <div className="diagnosis-content">
@@ -448,31 +450,54 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
         </h3>
 
         <div className="decision-main">
+          {!safeDecision.recommendedAction ? (
+            <div className="recommended-action">
+              <div className="action-name">Decision preview loading…</div>
+              <div className="action-reason">
+                <span className="reason-text">Preview must load before Execute becomes available.</span>
+              </div>
+            </div>
+          ) : (
           <div className="recommended-action">
             <div className="action-header">
               <span className="action-label">Recommended Action</span>
               <span className="action-rank">RANK #1</span>
             </div>
-            <div className="action-name">{safeDecision.recommendedAction || 'Payment Retry'}</div>
+            <div className="action-name">{safeDecision.recommendedAction}</div>
             <div className="action-metrics">
+              {safeDecision.recoveryProbability != null && (
               <div className="action-metric">
                 <span className="metric-label">Probability</span>
-                <span className="metric-value">{Math.round((safeDecision.recoveryProbability || 0.7) * 100)}%</span>
+                <span className="metric-value">{`${Math.round(safeDecision.recoveryProbability * 100)}%`}</span>
               </div>
+              )}
+              {safeDecision.expectedRecovery != null && (
               <div className="action-metric">
                 <span className="metric-label">Expected Recovery</span>
-                <span className="metric-value">{formatINR(safeDecision.expectedRecovery || safePayment.amount * 0.7)}</span>
+                <span className="metric-value">{formatINR(safeDecision.expectedRecovery)}</span>
               </div>
+              )}
+              {safeDecision.expectedNet != null && (
+                <div className="action-metric">
+                  <span className="metric-label">Expected Net (costs in)</span>
+                  <span className="metric-value">{formatINR(safeDecision.expectedNet)}</span>
+                </div>
+              )}
+              {safeDecision.confidence != null && (
               <div className="action-metric">
                 <span className="metric-label">Confidence</span>
-                <span className="metric-value">{Math.round((safeDecision.confidence || 0.8) * 100)}%</span>
+                <span className="metric-value">{`${Math.round(safeDecision.confidence * 100)}%`}</span>
               </div>
+              )}
             </div>
+            {safeDecision.reason && (
             <div className="action-reason">
               <span className="reason-label">Reason:</span>
-              <span className="reason-text">{safeDecision.reason || 'Optimal timing and channel for recovery'}</span>
+              <span className="reason-text">{safeDecision.reason}</span>
             </div>
+            )}
           </div>
+          )}
 
           {/* Multi-Step Recovery Plan (primary → fallback_1 → fallback_2) */}
           {Array.isArray(decisionPreview?.recoveryPlan) && decisionPreview.recoveryPlan.length > 0 && (
@@ -516,8 +541,11 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
                     </span>
                   </div>
                   <div className="candidate-metrics">
-                    <span>{Math.round((candidate.probability || 0.5) * 100)}% prob</span>
+                    <span>{candidate.probability != null ? `${Math.round(candidate.probability * 100)}% prob` : 'prob —'}</span>
                     <span>{formatINR(candidate.expectedRecovery || 0)}</span>
+                    {candidate.expectedNet != null && (
+                      <span>net {formatINR(candidate.expectedNet)}</span>
+                    )}
                   </div>
                 </div>
               ))}
@@ -739,14 +767,14 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
 
           <div className="channel-content">
             <div className="channel-main">
-              <div className="channel-name">{recoveryChannel.channel?.replace(/_/g, ' ') || 'WhatsApp'}</div>
+              <div className="channel-name">{recoveryChannel.channel?.replace(/_/g, ' ') || '—'}</div>
               <div className="channel-confidence">
-                {Math.round((recoveryChannel.confidence || 0.8) * 100)}% confidence
+                {recoveryChannel.confidence != null ? `${Math.round(recoveryChannel.confidence * 100)}% confidence` : 'confidence —'}
               </div>
             </div>
             <div className="channel-reason">
               <span className="reason-label">Reason:</span>
-              <span className="reason-text">{recoveryChannel.reason || 'Optimal for customer payment context'}</span>
+              <span className="reason-text">{recoveryChannel.reason || '—'}</span>
             </div>
             {recoveryMessage && (
               <div className="message-preview">
@@ -775,11 +803,11 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
           <div className="plan-details">
             <div className="plan-row">
               <span className="plan-label">Recommended</span>
-              <span className="plan-value">{safeDecision.recommendedAction || 'Payment Retry'}</span>
+                <span className="plan-value">{safeDecision.recommendedAction || '—'}</span>
             </div>
             <div className="plan-row">
               <span className="plan-label">Expected Recovery</span>
-              <span className="plan-value">{formatINR(safeDecision.expectedRecovery || safePayment.amount * 0.7)}</span>
+              <span className="plan-value">{safeDecision.expectedRecovery != null ? formatINR(safeDecision.expectedRecovery) : '—'}</span>
             </div>
             <div className="plan-row">
               <span className="plan-label">Attempt</span>
@@ -847,10 +875,11 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
               </>
             ) : (
               <>
-                <button 
+                <button
                   className="btn btn-primary"
-                  onClick={() => handleExecuteAction(safeDecision.recommendedAction || 'RETRY_IMMEDIATE')}
-                  disabled={isExecuting || safeGuardrails.status === 'BLOCKED'}
+                  onClick={() => handleExecuteAction(safeDecision.recommendedAction)}
+                  disabled={isExecuting || safeGuardrails.status === 'BLOCKED' || !safeDecision.recommendedAction}
+                  title={!safeDecision.recommendedAction ? 'Decision preview must load first' : 'Execute recommended action'}
                 >
                   {isExecuting ? (
                     <>
@@ -860,7 +889,7 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
                   ) : (
                     <>
                       <Play size={16} />
-                      <span>Execute Recovery</span>
+                      <span>{!safeDecision.recommendedAction ? 'Loading Preview…' : 'Execute Recovery'}</span>
                     </>
                   )}
                 </button>

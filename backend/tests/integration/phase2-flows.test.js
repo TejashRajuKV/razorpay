@@ -31,10 +31,10 @@ describe('flow 1: frontend API → backend contract', () => {
     expect(apiSrc).not.toMatch(/\/audit\/trail\//);
   });
 
-  test('frontend maps trends to period= and batch to /recovery/simulate-batch {count}', () => {
+  test('frontend maps trends to period= and batch to /recovery/run-batch (persisting)', () => {
     expect(apiSrc).toMatch(/\/analytics\/trends\?period=/);
-    expect(apiSrc).toMatch(/\/recovery\/simulate-batch/);
-    expect(apiSrc).toMatch(/\{ count: batchSize \}/);
+    expect(apiSrc).toMatch(/\/recovery\/run-batch/);
+    expect(apiSrc).not.toMatch(/runBatchSimulation/);
     expect(apiSrc).not.toMatch(/\/simulator\/batch/);
   });
 

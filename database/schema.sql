@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS recovery_actions (
     action_type VARCHAR(100) NOT NULL, -- 'retry', 'retry_later', 'reminder', 'payment_link', 'escalate', 'stop'
     action_status VARCHAR(50) DEFAULT 'pending', -- 'pending', 'executed', 'success', 'failed'
     attempt_number INT NOT NULL DEFAULT 1,
-    idempotency_key VARCHAR(64),
+    idempotency_key VARCHAR(64) UNIQUE,
     incentive_amount DECIMAL(10, 2) DEFAULT 0.00,
     incentive_type VARCHAR(50) DEFAULT 'none',
     executed_at TIMESTAMP,

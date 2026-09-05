@@ -186,6 +186,8 @@ export const analyticsAPI = {
   getWaterfall: () => apiRequest('/analytics/waterfall'),
   getMLMetrics: () => apiRequest('/analytics/ml-metrics'),
   getRecoverable: () => apiRequest('/analytics/recoverable'),
+  getByAction: () => apiRequest('/analytics/by-action'),
+  getFailureReasons: () => apiRequest('/analytics/failure-reasons'),
   getTrends: (timeRange = '7d') => {
     const periodMap = {
       '24h': 'hourly',
@@ -217,15 +219,10 @@ export const auditAPI = {
 
 /**
  * Simulator API endpoints
- * Backend: POST /recovery/simulate-batch { count }, POST /recovery/run-batch
+ * Backend: POST /recovery/run-batch (persisting batch)
  * Scenario inject/reset are FRONTEND-ONLY demo helpers (no backend endpoint).
  */
 export const simulatorAPI = {
-  runBatchSimulation: (batchSize = 50) =>
-    apiRequest('/recovery/simulate-batch', {
-      method: 'POST',
-      body: JSON.stringify({ count: batchSize }),
-    }),
   runBatch: (payload = {}) =>
     apiRequest('/recovery/run-batch', {
       method: 'POST',

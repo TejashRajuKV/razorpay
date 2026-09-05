@@ -362,6 +362,11 @@ router.post('/create-from-payment', async (req, res, next) => {
  * Update case status manually
  * PUT /api/v1/cases/:id/status
  * Body: { status: 'open' | 'in_progress' | 'resolved' | 'stopped' | 'escalated' }
+ * 
+ * NOTE: This endpoint intentionally bypasses the global STOP safety check.
+ * It is designed as a human override capability for manual case management.
+ * This allows operators to manually update case status even when global
+ * recovery operations are halted via the emergency STOP mechanism.
  */
 router.put('/:id/status', async (req, res, next) => {
   try {

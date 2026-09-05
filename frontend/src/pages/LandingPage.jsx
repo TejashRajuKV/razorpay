@@ -116,8 +116,8 @@ export default function LandingPage({ onLaunchConsole, onTriggerBatch, isBatchRu
       step: "01",
       title: "Detect Revenue at Risk",
       role: "Stream Ingestion Engine",
-      description: "Monitors payment webhooks, UPI dropouts, 3DS timeouts, e-mandates, and checkout abandonment events in real-time.",
-      pill: "Sub-second Ingestion",
+      description: "Monitors payment webhooks, UPI dropouts, 3DS timeouts, e-mandates, and checkout abandonment events on a scheduled demo scan (simulated data).",
+      pill: "Scheduled Demo Scan",
       icon: <Zap size={22} color="#FF6A00" />
     },
     {

@@ -7,7 +7,7 @@
 const axios = require('axios');
 
 const ML_CONFIG = {
-  baseUrl: process.env.ML_SERVICE_URL || 'http://localhost:5000',
+  baseUrl: process.env.ML_SERVICE_URL || 'http://localhost:5001',
   timeout: parseInt(process.env.ML_SERVICE_TIMEOUT) || 5000,
   endpoints: {
     health: '/health',

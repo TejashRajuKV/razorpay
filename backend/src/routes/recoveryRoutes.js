@@ -346,10 +346,9 @@ router.post('/strategy-comparison', async (req, res, next) => {
           diagnosis: 'temporary_failure'
         }));
     }
-    const comparison = await strategySimulatorService.compareStrategies(
-      cases,
-      strategies || undefined
-    );
+    const comparison = strategies
+      ? await strategySimulatorService.compareStrategies(cases, strategies)
+      : await strategySimulatorService.compareWithBaselines(cases);
     await auditService.logEvent({
       entityType: 'case',
       entityId: 'strategy_comparison',

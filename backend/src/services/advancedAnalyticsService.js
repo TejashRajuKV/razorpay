@@ -78,10 +78,17 @@ async function getAdvancedAnalytics() {
 
   const amountAtRisk = parseFloat(t.at_risk) || 0;
   const grossRecovered = parseFloat(t.recovered) || 0;
+  let recordedIncentive = 0;
+  try {
+    const inc = await db.query(
+      `SELECT COALESCE(SUM(incentive_amount), 0) AS total_incentive FROM recovery_actions`
+    );
+    recordedIncentive = parseFloat(inc[0]?.total_incentive) || 0;
+  } catch { /* older DBs without the column — incentive stays 0 */ }
   const roi = roiService.calculateROI({
     grossRecovered,
     amountAtRisk,
-    incentiveCost: 0,
+    incentiveCost: recordedIncentive,
     actionCounts,
     casesCount: t.cases || 0
   });
@@ -102,6 +109,7 @@ async function getAdvancedAnalytics() {
     netRecovered: roi.netRecovered,
     recoveryRate: roi.recoveryRate,
     roi: roi.roi,
+    costPerRecoveredRupee: roi.costPerRecoveredRupee,
     averageRecoveredPerCase: Math.round((parseFloat(t.avg_recovered) || 0) * 100) / 100,
     totalAttempts: (a.attempts || 0),
     successfulRecoveries: (a.successes || 0),

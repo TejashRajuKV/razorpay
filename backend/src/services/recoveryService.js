@@ -12,6 +12,7 @@ const simulatorService = require('./simulatorService');
 const timingService = require('./timingService');
 const incentiveService = require('./incentiveService');
 const outcomeFeedbackService = require('./outcomeFeedbackService');
+const roiService = require('./roiService');
 const customerProfileService = require('./customerProfileService');
 
 // Configuration constants for safety bounds
@@ -280,12 +281,27 @@ async function decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnos
       const actionFeedback = await outcomeFeedbackService.getActionDiagnosisAdjustment(action, diagnosis);
       const combined = Math.max(-0.10, Math.min(0.10, adjustment + actionFeedback.adjustment));
       const probability = Math.max(0, Math.min(0.95, Math.round((baseProbability + combined) * 10000) / 10000));
+      const expectedRecovery = Math.round(probability * amount * 100) / 100;
+      // Net value: gross expectation minus simulated action cost and incentive cost.
+      // Incremental value subtracts a documented synthetic no-action baseline
+      // (self-recovery without intervention). Both are simulator estimates,
+      // not causal production measurement. Ranking by net == ranking by incremental
+      // (constant shift per case), so decisions rank on expectedNet.
+      const actionCost = roiService.actionCost(action, 1);
+      let incentiveCost = 0;
+      try {
+        const inc = incentiveService.recommendIncentive({ amount, probability, diagnosis });
+        incentiveCost = inc.incentiveAmount || 0;
+      } catch { /* incentive advisory only */ }
+      const expectedNet = Math.round((expectedRecovery - actionCost - incentiveCost) * 100) / 100;
+      const incrementalNet = Math.round(((probability - NO_ACTION_BASELINE) * amount - actionCost - incentiveCost) * 100) / 100;
       return {
         action, probability, baseProbability,
         historicalAdjustment: adjustment,
         actionDiagnosisAdjustment: actionFeedback.adjustment,
         actionDiagnosisSamples: actionFeedback.sampleCount,
-        expectedRecovery: Math.round(probability * amount * 100) / 100
+        expectedRecovery,
+        actionCost, incentiveCost, expectedNet, incrementalNet
       };
     }));
   // Action fatigue: repeating a recent action gets a 40% expected-value penalty
@@ -302,8 +318,9 @@ async function decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnos
   for (const c of candidates) {
     c.fatiguePenalty = recentActionTypes.includes(c.action) ? 0.6 : 1.0;
     c.adjustedExpectedRecovery = Math.round(c.expectedRecovery * c.fatiguePenalty * 100) / 100;
+    c.adjustedExpectedNet = Math.round(c.expectedNet * c.fatiguePenalty * 100) / 100;
   }
-  candidates.sort((a, b) => b.adjustedExpectedRecovery - a.adjustedExpectedRecovery || b.probability - a.probability);
+  candidates.sort((a, b) => b.adjustedExpectedNet - a.adjustedExpectedNet || b.probability - a.probability);
   const probe = {
     ...recoveryCase,
     amount_at_risk: amount,
@@ -330,13 +347,13 @@ async function decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnos
     .filter((c) => !selected || c.action !== selected.action)
     .map((c) => {
       const evalEntry = evaluations.find((e) => e.action === c.action);
-      let whyNot = 'Below expected recovery of selected action';
+      let whyNot = 'Below expected net value of selected action';
       if (evalEntry && !evalEntry.allowed) {
         whyNot = `Guardrail blocked: ${evalEntry.reason}`;
-      } else if (selected && c.adjustedExpectedRecovery >= selected.adjustedExpectedRecovery) {
+      } else if (selected && c.adjustedExpectedNet >= selected.adjustedExpectedNet) {
         whyNot = 'Allowed but ranked below selected action on tie-break';
       } else if (selected) {
-        whyNot = `Lower expected recovery (Rs.${c.adjustedExpectedRecovery} vs Rs.${selected.adjustedExpectedRecovery})`;
+        whyNot = `Lower expected net (Rs.${c.adjustedExpectedNet} vs Rs.${selected.adjustedExpectedNet})`;
       }
       return { action: c.action, expectedRecovery: c.adjustedExpectedRecovery, whyNot };
     });
@@ -497,6 +514,19 @@ async function executeRecoveryAction(caseId, actionType, context = {}) {
          VALUES (?, ?, ?, ?, ?, ?)`,
         [actionId, caseId, actionType, 'executed', attemptNumber + 1, cooldownUntil.toISOString()]
       );
+    } else if (/unique constraint|UNIQUE constraint failed|duplicate key/i.test(err.message)) {
+      // Lost a race with an identical request — return the winner, never execute twice
+      let existingId = null;
+      try {
+        const rows = await db.query(
+          'SELECT id FROM recovery_actions WHERE idempotency_key = ?', [idemKey]
+        );
+        existingId = rows[0]?.id || null;
+      } catch { /* best-effort lookup */ }
+      return {
+        success: false, blocked: true, reason: 'DUPLICATE_ACTION',
+        existingId, action: actionType, caseId
+      };
     } else {
       throw err;
     }
@@ -584,6 +614,10 @@ async function executeRecoveryAction(caseId, actionType, context = {}) {
 
 // Customer-contact actions (messaging/outreach) — barred during quiet hours
 const CONTACT_ACTIONS = ['reminder', 'payment_link', 'escalate'];
+
+// Documented synthetic no-action baseline: assumed self-recovery probability
+// without any intervention. Simulator estimate only, not causal measurement.
+const NO_ACTION_BASELINE = 0.05;
 
 function isQuietHours(now = new Date()) {
   const istHour = new Date(now.getTime() + 5.5 * 3600000).getUTCHours();
@@ -880,6 +914,7 @@ module.exports = {
   isGlobalStopActive,
   computeHumanEscalation,
   buildRecoveryPlan,
+  NO_ACTION_BASELINE,
   idempotencyKey,
   CONTACT_ACTIONS,
   CONFIG
