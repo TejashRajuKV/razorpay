@@ -229,6 +229,128 @@ router.get('/failure-reasons', async (req, res, next) => {
 });
 
 /**
+ * Recovery waterfall buckets for reporting:
+ * Total at Risk → Detected → Actioned → Recovered → Failed → Stopped.
+ * GET /api/v1/analytics/waterfall
+ */
+router.get('/waterfall', async (req, res, next) => {
+  try {
+    const total = await db.query(
+      `SELECT COUNT(*) AS cases, COALESCE(SUM(amount_at_risk), 0) AS amount FROM recovery_cases`
+    );
+    const actioned = await db.query(
+      `SELECT COUNT(DISTINCT rc.id) AS cases, COALESCE(SUM(rc.amount_at_risk), 0) AS amount
+       FROM recovery_cases rc JOIN recovery_actions ra ON ra.case_id = rc.id`
+    );
+    const recovered = await db.query(
+      `SELECT COUNT(*) AS cases, COALESCE(SUM(recovered_amount), 0) AS amount
+       FROM recovery_cases WHERE status = 'resolved'`
+    );
+    const stopped = await db.query(
+      `SELECT COUNT(*) AS cases, COALESCE(SUM(amount_at_risk), 0) AS amount
+       FROM recovery_cases WHERE status = 'stopped'`
+    );
+    const failed = await db.query(
+      `SELECT COUNT(DISTINCT rc.id) AS cases, COALESCE(SUM(rc.amount_at_risk), 0) AS amount
+       FROM recovery_cases rc JOIN recovery_actions ra ON ra.case_id = rc.id
+       WHERE rc.status NOT IN ('resolved', 'stopped') AND ra.action_status = 'failed'`
+    );
+    const num = (v) => Number(v) || 0;
+    const buckets = [
+      { key: 'at_risk', label: 'Total at Risk', cases: num(total[0]?.cases), amount: num(total[0]?.amount) },
+      { key: 'detected', label: 'Detected', cases: num(total[0]?.cases), amount: num(total[0]?.amount) },
+      { key: 'actioned', label: 'Actioned', cases: num(actioned[0]?.cases), amount: num(actioned[0]?.amount) },
+      { key: 'recovered', label: 'Recovered', cases: num(recovered[0]?.cases), amount: num(recovered[0]?.amount) },
+      { key: 'failed', label: 'Failed', cases: num(failed[0]?.cases), amount: num(failed[0]?.amount) },
+      { key: 'stopped', label: 'Stopped', cases: num(stopped[0]?.cases), amount: num(stopped[0]?.amount) },
+    ];
+    res.json({ success: true, data: { buckets } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Live ML train/test metrics proxied from the Python service.
+ * 503 with { available: false } when the ML service is down — never fake scores.
+ * GET /api/v1/analytics/ml-metrics
+ */
+router.get('/ml-metrics', async (req, res, next) => {
+  try {
+    const axios = require('axios');
+    const baseUrl = process.env.ML_SERVICE_URL || 'http://localhost:5000';
+    const timeout = parseInt(process.env.ML_SERVICE_TIMEOUT) || 5000;
+    const response = await axios.get(`${baseUrl}/metrics`, { timeout });
+    const { risk = {}, diagnosis = {}, recovery = {} } = response.data || {};
+    res.json({
+      success: true,
+      data: {
+        available: true,
+        mlAccuracy: risk.accuracy != null ? Math.round(risk.accuracy * 10000) / 100 : null,
+        mlF1Score: risk.f1 ?? null,
+        mlRocAuc: risk.roc_auc ?? null,
+        mlBrierScore: risk.brier_score ?? null,
+        modelVersion: risk.model_version || null,
+        note: risk.note || null,
+        diagnosis,
+        recovery
+      }
+    });
+  } catch (error) {
+    res.status(503).json({ success: false, available: false, error: 'ML service unavailable' });
+  }
+});
+
+/**
+ * Recoverable revenue: sum over open cases of amount_at_risk weighted by the
+ * measured resolution rate of each case's diagnosis (global rate as fallback).
+ * Honest, fully derived from recorded outcomes — not a model prediction.
+ * GET /api/v1/analytics/recoverable
+ */
+router.get('/recoverable', async (req, res, next) => {
+  try {
+    const rates = await db.query(
+      `SELECT diagnosis, COUNT(*) AS total,
+        COUNT(CASE WHEN status = 'resolved' THEN 1 END) AS resolved
+       FROM recovery_cases GROUP BY diagnosis`
+    );
+    const open = await db.query(
+      `SELECT diagnosis, COALESCE(SUM(amount_at_risk), 0) AS amount
+       FROM recovery_cases WHERE status IN ('open', 'in_progress')
+       GROUP BY diagnosis`
+    );
+    let totalCases = 0;
+    let totalResolved = 0;
+    const byDiag = {};
+    for (const r of rates) {
+      totalCases += Number(r.total) || 0;
+      totalResolved += Number(r.resolved) || 0;
+      byDiag[r.diagnosis] = (Number(r.total) || 0) > 0 ? (Number(r.resolved) || 0) / Number(r.total) : 0;
+    }
+    const globalRate = totalCases > 0 ? totalResolved / totalCases : 0;
+    let recoverable = 0;
+    let openAmount = 0;
+    for (const o of open) {
+      const amt = parseFloat(o.amount) || 0;
+      openAmount += amt;
+      recoverable += amt * (byDiag[o.diagnosis] ?? globalRate);
+    }
+    recoverable = Math.round(recoverable * 100) / 100;
+    res.json({
+      success: true,
+      data: {
+        recoverable,
+        openAmount: Math.round(openAmount * 100) / 100,
+        shareOfAtRisk: openAmount > 0 ? Math.round((recoverable / openAmount) * 10000) / 100 : 0,
+        basis: 'measured per-diagnosis resolution rates from recorded outcomes'
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * Get ML insights derived from REAL recovery analytics (no fake accuracy).
  * Returns diagnosis distribution, action effectiveness, and confidence stats
  * computed from SQL — never hardcoded model scores.

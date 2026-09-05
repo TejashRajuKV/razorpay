@@ -207,6 +207,58 @@ function getPriorityScore(recoveryCase = {}) {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
+// Multi-step recovery plan: primary → fallback_1 → fallback_2 from diagnosis.
+// Mirrors ml CATEGORY_TO_ACTION. Generated at read time (no schema change);
+// the decision engine advances through it naturally via fatigue + guardrails.
+const DIAGNOSIS_PLANS = {
+  network_timeout: [
+    { action: 'retry', wait_min: 5, reason: 'Transient outage — immediate retry first' },
+    { action: 'retry_later', wait_min: 60, reason: 'Fallback if outage persists' },
+    { action: 'escalate', wait_min: 0, reason: 'Human review if retries keep failing' },
+  ],
+  insufficient_funds: [
+    { action: 'reminder', wait_min: 1440, reason: 'Give customer time for funds to arrive' },
+    { action: 'retry_later', wait_min: 1440, reason: 'Retry after a day' },
+    { action: 'payment_link', wait_min: 0, reason: 'Frictionless link as last nudge' },
+  ],
+  card_expired: [
+    { action: 'payment_link', wait_min: 30, reason: 'New payment method required' },
+    { action: 'reminder', wait_min: 60, reason: 'Remind to update card' },
+    { action: 'escalate', wait_min: 0, reason: 'Human review if customer is stuck' },
+  ],
+  upi_pin_error: [
+    { action: 'reminder', wait_min: 60, reason: 'Gentle reminder to retry with correct PIN' },
+    { action: 'payment_link', wait_min: 60, reason: 'Alternative payment path' },
+    { action: 'retry_later', wait_min: 360, reason: 'Retry after a cooling period' },
+  ],
+  bank_decline: [
+    { action: 'retry_later', wait_min: 360, reason: 'Bank-side block may clear with time' },
+    { action: 'escalate', wait_min: 0, reason: 'Human review for persistent declines' },
+    { action: 'stop', wait_min: 0, reason: 'Stop if decline is final' },
+  ],
+  abandoned: [
+    { action: 'payment_link', wait_min: 120, reason: 'Frictionless checkout link' },
+    { action: 'reminder', wait_min: 120, reason: 'Hinglish nudge follow-up' },
+    { action: 'escalate', wait_min: 0, reason: 'Human review for high-value carts' },
+  ],
+  data_error: [
+    { action: 'escalate', wait_min: 0, reason: 'Human review immediately' },
+    { action: 'payment_link', wait_min: 0, reason: 'Fresh link with corrected details' },
+    { action: 'stop', wait_min: 0, reason: 'Stop if details cannot be fixed' },
+  ],
+};
+const DEFAULT_PLAN = [
+  { action: 'retry', wait_min: 30, reason: 'Default first attempt' },
+  { action: 'reminder', wait_min: 120, reason: 'Default follow-up' },
+  { action: 'escalate', wait_min: 0, reason: 'Default human review' },
+];
+
+function buildRecoveryPlan(diagnosis) {
+  const key = typeof diagnosis === 'string' ? diagnosis : diagnosis?.diagnosis;
+  const steps = DIAGNOSIS_PLANS[key] || DEFAULT_PLAN;
+  return steps.map((s, i) => ({ step: i + 1, ...s }));
+}
+
 async function decideBestSafeAction(recoveryCase, recoveryProbabilities, diagnosisInfo) {
   const amount = parseFloat(recoveryCase.amount_at_risk ?? recoveryCase.amountAtRisk ?? 0) || 0;
   const diagnosis = recoveryCase.diagnosis || diagnosisInfo?.diagnosis || 'unknown';
@@ -827,6 +879,7 @@ module.exports = {
   isQuietHours,
   isGlobalStopActive,
   computeHumanEscalation,
+  buildRecoveryPlan,
   idempotencyKey,
   CONTACT_ACTIONS,
   CONFIG

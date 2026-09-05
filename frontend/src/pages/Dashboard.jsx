@@ -30,10 +30,22 @@ import {
   Building,
   Check,
   XCircle,
-  HelpCircle
+  HelpCircle,
+  Target
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { casesAPI } from '../services/api';
+import { casesAPI, analyticsAPI } from '../services/api';
+
+function halfDelta(rows, key) {
+  if (!Array.isArray(rows) || rows.length < 4) return null;
+  const chrono = [...rows].reverse();
+  const half = Math.floor(chrono.length / 2);
+  const sum = (rs) => rs.reduce((s, r) => s + (Number(r[key]) || 0), 0);
+  const prev = sum(chrono.slice(0, half));
+  const curr = sum(chrono.slice(half));
+  if (prev <= 0) return null;
+  return Math.round(((curr - prev) / prev) * 1000) / 10;
+}
 
 function ChannelMessageBox({ caseId }) {
   const [data, setData] = useState(null);
@@ -77,6 +89,10 @@ export default function Dashboard({
   selectedCaseId,
   setSelectedCaseId,
   onOpenCase,
+  focusIds,
+  onClearFocus,
+  incidentAlert,
+  onInvestigateAlert,
   onExecuteRecovery,
   onTriggerBatch,
   isBatchRunning,
@@ -88,6 +104,23 @@ export default function Dashboard({
   const [searchQuery, setSearchQuery] = useState('');
   const [isExecutingAction, setIsExecutingAction] = useState(false);
   const [executionMessage, setExecutionMessage] = useState(null);
+  const [trendDelta, setTrendDelta] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await analyticsAPI.getTrends('30d').catch(() => null);
+        if (!cancelled && res?.success && Array.isArray(res.data?.trends)) {
+          setTrendDelta({
+            recovered: halfDelta(res.data.trends, 'amount_recovered'),
+            atRisk: halfDelta(res.data.trends, 'amount_at_risk'),
+          });
+        }
+      } catch { /* deltas stay hidden without backend data */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Selected case — may be absent when backend has provided no data
   const activeCase = cases.find(c => c.id === selectedCaseId) || cases[0];
@@ -102,9 +135,11 @@ export default function Dashboard({
     );
   }
 
-  // Filtered cases
+  // Filtered cases (alert focus narrows the queue to the alert's case IDs)
+  const focusSet = Array.isArray(focusIds) ? new Set(focusIds) : null;
   const filteredCases = cases.filter(c => {
-    const matchesSearch = 
+    if (focusSet && !focusSet.has(c.id)) return false;
+    const matchesSearch =
       c.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.customer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (c.payment?.method?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
@@ -169,6 +204,17 @@ export default function Dashboard({
                 <span className="live-pulse" />
                 <span>Continuous Loop Active</span>
               </span>
+              {incidentAlert && (
+                <button
+                  className="badge badge-coral"
+                  style={{ cursor: 'pointer', border: 'none' }}
+                  onClick={() => onInvestigateAlert && onInvestigateAlert()}
+                  title={incidentAlert.description || incidentAlert.title}
+                >
+                  <AlertTriangle size={13} />
+                  <span>Active Incident: {incidentAlert.title}</span>
+                </button>
+              )}
             </div>
 
             <h1 className="command-heading">
@@ -199,21 +245,6 @@ export default function Dashboard({
                 )}
               </button>
 
-              <button 
-                className="btn btn-secondary"
-                onClick={() => onInjectScenario('RAHUL_UPI')}
-              >
-                <Zap size={15} color="#FF6A00" />
-                <span>Inject UPI Failure</span>
-              </button>
-
-              <button 
-                className="btn btn-secondary"
-                onClick={() => onInjectScenario('VIKRAM_ENTERPRISE')}
-              >
-                <Building size={15} color="#0066FF" />
-                <span>Inject High Value Case</span>
-              </button>
             </div>
           </div>
 
@@ -280,6 +311,9 @@ export default function Dashboard({
           <div className="metric-value coral">{formatINR(metrics.revenueAtRisk)}</div>
           <div className="metric-footer">
             <span className="badge badge-coral">{metrics.activeCases} active cases</span>
+            {trendDelta?.atRisk != null && (
+              <span className="metric-sub"> {trendDelta.atRisk >= 0 ? '↗' : '↘'} {Math.abs(trendDelta.atRisk)}% vs previous period</span>
+            )}
           </div>
         </div>
 
@@ -294,30 +328,59 @@ export default function Dashboard({
               <TrendingUp size={12} />
               <span>{metrics.recoveryRate}% Recovery Rate</span>
             </span>
+            {trendDelta?.recovered != null && (
+              <span className="metric-sub"> {trendDelta.recovered >= 0 ? '↗' : '↘'} {Math.abs(trendDelta.recovered)}% recovered vs previous period</span>
+            )}
           </div>
         </div>
 
         <div className="porcelain-card metric-card">
           <div className="metric-header">
-            <span className="metric-title">Bounded Stopping Halts</span>
-            <div className="metric-icon-box amber"><Lock size={18} /></div>
+            <span className="metric-title">Recoverable Revenue</span>
+            <div className="metric-icon-box blue"><Target size={18} /></div>
           </div>
-          <div className="metric-value">{metrics.stoppedCases}</div>
+          <div className="metric-value">{formatINR(metrics.recoverableRevenue || 0)}</div>
           <div className="metric-footer">
-            <span className="metric-sub">Protected from repeat spam</span>
+            <span className="metric-sub">{metrics.recoverableShare || 0}% of revenue at risk</span>
           </div>
         </div>
 
-        <div className="porcelain-card metric-card">
-          <div className="metric-header">
-            <span className="metric-title">Human Escalations</span>
-            <div className="metric-icon-box purple"><User size={18} /></div>
+        {(Number(metrics.stoppedCases) || 0) === 0 && (Number(metrics.escalatedCases) || 0) === 0 ? (
+          <div className="porcelain-card metric-card">
+            <div className="metric-header">
+              <span className="metric-title">Safety Activity</span>
+              <div className="metric-icon-box amber"><Lock size={18} /></div>
+            </div>
+            <div className="metric-value">Quiet</div>
+            <div className="metric-footer">
+              <span className="metric-sub">No halts or escalations yet</span>
+            </div>
           </div>
-          <div className="metric-value">{metrics.escalatedCases}</div>
-          <div className="metric-footer">
-            <span className="badge badge-purple">&gt; ₹50k Orders</span>
-          </div>
-        </div>
+        ) : (
+          <>
+            <div className="porcelain-card metric-card">
+              <div className="metric-header">
+                <span className="metric-title">Bounded Stopping Halts</span>
+                <div className="metric-icon-box amber"><Lock size={18} /></div>
+              </div>
+              <div className="metric-value">{metrics.stoppedCases}</div>
+              <div className="metric-footer">
+                <span className="metric-sub">Protected from repeat spam</span>
+              </div>
+            </div>
+
+            <div className="porcelain-card metric-card">
+              <div className="metric-header">
+                <span className="metric-title">Human Escalations</span>
+                <div className="metric-icon-box purple"><User size={18} /></div>
+              </div>
+              <div className="metric-value">{metrics.escalatedCases}</div>
+              <div className="metric-footer">
+                <span className="badge badge-purple">&gt; ₹50k Orders</span>
+              </div>
+            </div>
+          </>
+        )}
       </section>
 
       {/* Execution Feedback Banner */}
@@ -352,6 +415,21 @@ export default function Dashboard({
                 ))}
               </div>
             </div>
+
+            {focusSet && (
+              <div className="execution-toast-banner porcelain-card" style={{ marginBottom: 12 }}>
+                <span>Showing {filteredCases.length} case(s) from leakage alert.</span>
+                <button className="btn btn-secondary btn-sm" onClick={() => onClearFocus && onClearFocus()}>
+                  <span>Clear</span>
+                </button>
+              </div>
+            )}
+
+            {filterStatus === 'ESCALATED' && (
+              <div className="execution-toast-banner porcelain-card" style={{ marginBottom: 12 }}>
+                <span>Needs Review: {filteredCases.length} escalated case(s) — high value with low model confidence. Select a case to approve the intervention or halt recovery.</span>
+              </div>
+            )}
 
             {/* Search Input */}
             <div className="search-box">
@@ -657,10 +735,10 @@ export default function Dashboard({
           gap: 24px;
         }
 
-        /* 1. Command Stage */
+        /* 1. Command Stage (compact — numbers first) */
         .agent-command-stage {
           background: linear-gradient(135deg, #FFFFFF 0%, #FAF5EE 100%);
-          padding: 32px;
+          padding: 18px 28px;
         }
 
         .command-inner-grid {
@@ -677,16 +755,16 @@ export default function Dashboard({
         }
 
         .command-heading {
-          font-size: 28px;
+          font-size: 21px;
           font-weight: 800;
           color: var(--text-primary);
-          margin-bottom: 8px;
+          margin-bottom: 4px;
         }
 
         .command-sub {
-          font-size: 14.5px;
+          font-size: 13.5px;
           color: var(--text-secondary);
-          margin-bottom: 24px;
+          margin-bottom: 14px;
           max-width: 600px;
         }
 
@@ -797,7 +875,7 @@ export default function Dashboard({
         /* 2. Metrics Grid */
         .metrics-grid {
           display: grid;
-          grid-template-columns: repeat(5, 1fr);
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
           gap: 16px;
         }
 

@@ -70,7 +70,8 @@ router.get('/:id/decision-preview', async (req, res, next) => {
       failureReason: caseData.failure_reason,
       language: req.query.language || 'hinglish'
     });
-    res.json({ success: true, data: { diagnosis, decision, timing, incentive, customerProfile, risk, explanation, channel, message } });
+    const recoveryPlan = recoveryService.buildRecoveryPlan(diagnosis?.diagnosis || caseData.diagnosis);
+    res.json({ success: true, data: { diagnosis, decision, timing, incentive, customerProfile, risk, explanation, channel, message, recoveryPlan } });
   } catch (error) {
     next(error);
   }

@@ -13,27 +13,43 @@ import {
 } from 'lucide-react';
 import { analyticsAPI } from '../services/api';
 
-export default function AnalyticsPage({ metrics }) {
+export default function AnalyticsPage({ metrics, onViewAlertCases, onGoSimulator }) {
   const [advanced, setAdvanced] = useState(null);
   const [alerts, setAlerts] = useState(null);
   const [strategyComparison, setStrategyComparison] = useState(null);
   const [overview, setOverview] = useState(null);
+  const [waterfall, setWaterfall] = useState(null);
+  const [trendRange, setTrendRange] = useState('7d');
+  const [trends, setTrends] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [advRes, alertRes, stratRes, ovRes] = await Promise.all([
+        const res = await analyticsAPI.getTrends(trendRange).catch(() => null);
+        if (!cancelled && res?.success) setTrends(res.data);
+      } catch { /* trend section stays hidden without backend data */ }
+    })();
+    return () => { cancelled = true; };
+  }, [trendRange]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [advRes, alertRes, stratRes, ovRes, wfRes] = await Promise.all([
           analyticsAPI.getAdvanced(),
           analyticsAPI.getAlerts(),
           analyticsAPI.getStrategyComparison().catch(() => null),
           analyticsAPI.getOverview().catch(() => null),
+          analyticsAPI.getWaterfall().catch(() => null),
         ]);
         if (!cancelled) {
           if (advRes?.success) setAdvanced(advRes.data);
           if (alertRes?.success) setAlerts(alertRes.data);
           if (stratRes?.success) setStrategyComparison(stratRes.data);
           if (ovRes?.success) setOverview(ovRes.data);
+          if (wfRes?.success) setWaterfall(wfRes.data);
         }
       } catch { /* backend unavailable — sections below render only with live data */ }
     })();
@@ -122,6 +138,13 @@ export default function AnalyticsPage({ metrics }) {
                 At risk: {formatINR(a.amountAtRisk)} · Cases: {a.affectedCases} · Cause: {a.mainCause}
               </div>
               <div>AI recommendation: {a.recommendedAction}</div>
+              {Array.isArray(a.caseIds) && a.caseIds.length > 0 && onViewAlertCases && (
+                <div style={{ marginTop: 8 }}>
+                  <button className="btn btn-secondary btn-sm" onClick={() => onViewAlertCases(a.caseIds)}>
+                    <span>View Cases ({a.caseIds.length})</span>
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -148,6 +171,78 @@ export default function AnalyticsPage({ metrics }) {
             <span className="ml-label">Best Action / Channel</span>
             <div className="ml-val purple" style={{ fontSize: 18 }}>{advanced.bestAction || '—'} / {advanced.bestChannel || '—'}</div>
             <span className="ml-note">By recovered revenue</span>
+          </div>
+        </div>
+      )}
+
+      {/* Recovery trend (live SQL, selectable range) */}
+      <div className="porcelain-card channel-card">
+        <div className="card-header">
+          <div>
+            <h3 className="card-title">Recovery Trend</h3>
+            <p className="card-sub">Resolved cases and recovered revenue per period, from live case data.</p>
+          </div>
+          <div className="filter-pill-strip">
+            {['24h', '7d', '30d', '90d'].map((r) => (
+              <button
+                key={r}
+                className={`filter-pill-btn ${trendRange === r ? 'active' : ''}`}
+                onClick={() => setTrendRange(r)}
+              >
+                {r.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+        {trends && Array.isArray(trends.trends) && trends.trends.length > 0 ? (
+          <div className="cause-list">
+            {(() => {
+              const rows = [...trends.trends].reverse();
+              const max = Math.max(1, ...rows.map((t) => Number(t.amount_recovered) || 0));
+              return rows.map((t) => (
+                <div key={t.period} className="cause-item">
+                  <div className="cause-row-top">
+                    <span className="cause-name">{t.period}</span>
+                    <span className="cause-pct">{formatINR(Number(t.amount_recovered) || 0)} · {t.cases_resolved}/{t.cases_created} resolved</span>
+                  </div>
+                  <div className="cause-bar-bg">
+                    <div className="cause-bar-fill" style={{ width: `${Math.min(100, ((Number(t.amount_recovered) || 0) / max) * 100)}%` }} />
+                  </div>
+                </div>
+              ));
+            })()}
+          </div>
+        ) : (
+          <p className="card-sub" style={{ padding: '12px 0' }}>
+            No trend data from backend yet. No data is shown.
+          </p>
+        )}
+      </div>
+
+      {/* Recovery waterfall (live SQL buckets) */}
+      {waterfall && Array.isArray(waterfall.buckets) && waterfall.buckets.length > 0 && (
+        <div className="porcelain-card channel-card">
+          <div className="card-header">
+            <div>
+              <h3 className="card-title">Recovery Waterfall</h3>
+              <p className="card-sub">At Risk → Detected → Actioned → Recovered → Failed → Stopped, from live case data.</p>
+            </div>
+          </div>
+          <div className="cause-list">
+            {(() => {
+              const max = Math.max(1, ...waterfall.buckets.map((b) => Number(b.amount) || 0));
+              return waterfall.buckets.map((b) => (
+                <div key={b.key} className="cause-item">
+                  <div className="cause-row-top">
+                    <span className="cause-name">{b.label}</span>
+                    <span className="cause-pct">{formatINR(Number(b.amount) || 0)} · {b.cases} cases</span>
+                  </div>
+                  <div className="cause-bar-bg">
+                    <div className="cause-bar-fill" style={{ width: `${Math.min(100, ((Number(b.amount) || 0) / max) * 100)}%` }} />
+                  </div>
+                </div>
+              ));
+            })()}
           </div>
         </div>
       )}
@@ -239,9 +334,16 @@ export default function AnalyticsPage({ metrics }) {
               </tbody>
             </table>
             ) : (
-              <p className="card-sub" style={{ padding: '12px 0' }}>
-                No action data from backend yet — execute recovery actions first. No data is shown.
-              </p>
+              <div style={{ padding: '12px 0', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <p className="card-sub" style={{ margin: 0 }}>
+                  No recovery actions yet — run a batch simulation to populate analytics.
+                </p>
+                {onGoSimulator && (
+                  <button className="btn btn-primary btn-sm" onClick={onGoSimulator}>
+                    <span>Go to Simulator</span>
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -371,6 +473,29 @@ export default function AnalyticsPage({ metrics }) {
         .card-sub {
           font-size: 13px;
           color: var(--text-muted);
+        }
+
+        .filter-pill-strip {
+          display: flex;
+          gap: 6px;
+          flex-wrap: wrap;
+        }
+
+        .filter-pill-btn {
+          border: 1px solid var(--border-subtle);
+          background: #FFFFFF;
+          padding: 4px 10px;
+          border-radius: var(--radius-pill);
+          font-size: 11.5px;
+          font-weight: 600;
+          color: var(--text-secondary);
+          cursor: pointer;
+        }
+
+        .filter-pill-btn.active {
+          background: var(--accent-orange);
+          color: #FFFFFF;
+          border-color: var(--accent-orange);
         }
 
         .custom-table {

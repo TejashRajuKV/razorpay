@@ -46,6 +46,16 @@ export default function App() {
   const [cases, setCases] = useState([]);
   const [selectedCaseId, setSelectedCaseId] = useState(null);
   const [investigatingCaseId, setInvestigatingCaseId] = useState(null);
+  const [alertFocusIds, setAlertFocusIds] = useState(null);
+  const [topAlert, setTopAlert] = useState(null);
+
+  // From a leakage alert: show only the affected cases in the recovery queue
+  const handleViewAlertCases = (caseIds) => {
+    setAlertFocusIds(Array.isArray(caseIds) ? caseIds : []);
+    setCurrentView('dashboard');
+    setDashboardTab('overview');
+    window.location.hash = '#/';
+  };
   const [auditLogs, setAuditLogs] = useState([]);
   const [isBatchRunning, setIsBatchRunning] = useState(false);
   const [backendConnected, setBackendConnected] = useState(false);
@@ -122,6 +132,39 @@ export default function App() {
         const logs = Array.isArray(auditRes.data) ? auditRes.data : (auditRes.data.logs || []);
         setAuditLogs(logs);
       }
+
+      // Top leakage alert for the dashboard incident pill (uses caseIds it already carries)
+      try {
+        const alertRes = await apiService.analytics.getAlerts();
+        const list = alertRes?.success ? (alertRes.data?.alerts || []) : [];
+        setTopAlert(list.find((a) => Array.isArray(a.caseIds) && a.caseIds.length > 0) || list[0] || null);
+      } catch { /* incident pill stays hidden without backend data */ }
+
+      // Recoverable revenue (measured per-diagnosis resolution rates)
+      try {
+        const recRes = await apiService.analytics.getRecoverable();
+        if (recRes?.success && recRes.data) {
+          setMetrics(prev => ({
+            ...prev,
+            recoverableRevenue: recRes.data.recoverable || 0,
+            recoverableShare: recRes.data.shareOfAtRisk || 0,
+          }));
+        }
+      } catch { /* recoverable card stays at zero without backend data */ }
+
+      // Live ML train/test metrics (Python service) — shown only when actually evaluated
+      try {
+        const mlRes = await apiService.analytics.getMLMetrics();
+        if (mlRes?.success && mlRes.data?.available && mlRes.data.mlAccuracy != null) {
+          setMetrics(prev => ({
+            ...prev,
+            mlAccuracy: mlRes.data.mlAccuracy,
+            mlF1Score: mlRes.data.mlF1Score,
+            mlRocAuc: mlRes.data.mlRocAuc,
+          }));
+        }
+      } catch { /* ML metrics stay hidden until a real evaluation exposes them */ }
+
       setBackendError(null);
     } catch (error) {
       console.error('[App] Failed to load data from backend:', error);
@@ -220,30 +263,19 @@ export default function App() {
     return { recovered: false, amount: 0, message: noResult };
   };
 
-  // Trigger high-volume batch simulation — backend values only, no hardcoded revenue
+  // Trigger batch recovery on REAL cases — outcomes persist to the DB
+  // (synthetic simulate-batch never touches real data, so it cannot move recovery metrics)
   const handleTriggerBatch = async () => {
     setIsBatchRunning(true);
     setCurrentView('dashboard');
 
     if (backendConnected) {
       try {
-        const result = await apiService.simulator.runBatchSimulation(50);
+        const result = await apiService.simulator.runBatch({ limit: 50 });
         if (result.success) {
-          console.log('[App] Batch simulation executed via backend:', result.data);
+          console.log('[App] Batch recovery executed via backend:', result.data);
           const b = result.data || {};
           await refreshFromBackend();
-          const batchAudit = {
-            id: `AUD-${Math.floor(1000 + Math.random() * 9000)}`,
-            timestamp: new Date().toISOString(),
-            caseId: 'BATCH-SIM-402',
-            actor: 'AI_RECOVERY_AGENT',
-            eventType: 'BATCH_SIMULATION_EXECUTED',
-            details: `Backend batch: ${b.successful ?? b.totalCases ?? 0} recovered of ${b.totalCases ?? b.totalProcessed ?? 0}, ₹${Number(b.totalRecovered || 0).toLocaleString('en-IN')} recovered.`,
-            safetyStatus: 'BATCH_COMPLETED_BOUNDED',
-            recoveryDelta: Number(b.totalRecovered || 0)
-          };
-          setAuditLogs(prev => [batchAudit, ...prev]);
-          setIsBatchRunning(false);
           setBackendError(null);
           confetti({ particleCount: 120, spread: 90, origin: { y: 0.5 } });
           return;
@@ -286,12 +318,12 @@ export default function App() {
       />
       {!backendConnected && (
         <div style={{ background: '#FEF3C7', borderBottom: '1px solid #1A1A1A', padding: '8px 20px', fontSize: 13, fontWeight: 700, textAlign: 'center' }}>
-          Backend disconnected — no data is shown. Start the backend server to load live recovery data.
+          ⚠ BACKEND OFFLINE — no data is shown. Start the backend server to load live recovery data.
         </div>
       )}
       {backendConnected && (
         <div style={{ background: '#ECFDF5', borderBottom: '1px solid #1A1A1A', padding: '6px 20px', fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
-          ML Engine: Connected · Model: Local Python
+          ● LIVE BACKEND — sandbox financial environment: simulated recovery runs do not move real money · ML Engine: Local Python
         </div>
       )}
       {backendError && (
@@ -365,6 +397,10 @@ export default function App() {
                 onTriggerBatch={handleTriggerBatch}
                 isBatchRunning={isBatchRunning}
                 onInjectScenario={handleInjectScenario}
+                focusIds={alertFocusIds}
+                onClearFocus={() => setAlertFocusIds(null)}
+                incidentAlert={topAlert}
+                onInvestigateAlert={() => topAlert && handleViewAlertCases(topAlert.caseIds || [])}
               />
             )}
 
@@ -380,8 +416,10 @@ export default function App() {
             )}
 
             {dashboardTab === 'analytics' && (
-              <AnalyticsPage 
+              <AnalyticsPage
                 metrics={metrics}
+                onViewAlertCases={handleViewAlertCases}
+                onGoSimulator={() => { setCurrentView('dashboard'); setDashboardTab('simulator'); }}
               />
             )}
 

@@ -18,6 +18,14 @@ async function getLeakageAlerts() {
   const recentFailed = (failed[0] || {}).recent || 0;
   const olderFailed = (failed[0] || {}).older || 0;
   if (recentFailed >= 5 && recentFailed >= olderFailed * 0.5 + 3) {
+    let spikeIds = [];
+    try {
+      const rows = await db.query(
+        `SELECT rc.id FROM recovery_cases rc JOIN payments p ON rc.payment_id = p.id
+         WHERE p.status = 'failed' AND p.created_at >= datetime('now', '-1 day') LIMIT 50`
+      );
+      spikeIds = rows.map((r) => r.id);
+    } catch { /* ids are advisory */ }
     alerts.push({
       severity: 'high',
       title: 'Spike in failed payments',
@@ -25,7 +33,8 @@ async function getLeakageAlerts() {
       amountAtRisk: 0,
       affectedCases: recentFailed,
       mainCause: 'failed_payment_spike',
-      recommendedAction: 'Run batch detection and prioritize retry/payment_link recovery.'
+      recommendedAction: 'Run batch detection and prioritize retry/payment_link recovery.',
+      caseIds: spikeIds
     });
   }
 
@@ -36,6 +45,13 @@ async function getLeakageAlerts() {
   const openAtRisk = parseFloat((atRisk[0] || {}).total) || 0;
   const openCount = (atRisk[0] || {}).n || 0;
   if (openAtRisk >= 100000) {
+    let exposureIds = [];
+    try {
+      const rows = await db.query(
+        `SELECT id FROM recovery_cases WHERE status IN ('open', 'in_progress') LIMIT 50`
+      );
+      exposureIds = rows.map((r) => r.id);
+    } catch { /* ids are advisory */ }
     alerts.push({
       severity: openAtRisk >= 500000 ? 'critical' : 'high',
       title: 'Unusually high amount at risk',
@@ -43,7 +59,8 @@ async function getLeakageAlerts() {
       amountAtRisk: openAtRisk,
       affectedCases: openCount,
       mainCause: 'high_open_exposure',
-      recommendedAction: 'Run batch recovery on highest priority cases first.'
+      recommendedAction: 'Run batch recovery on highest priority cases first.',
+      caseIds: exposureIds
     });
   }
 
@@ -55,6 +72,13 @@ async function getLeakageAlerts() {
   const total = (rate[0] || {}).total || 0;
   const resolved = (rate[0] || {}).resolved || 0;
   if (total >= 10 && resolved / total < 0.2) {
+    let unresolvedIds = [];
+    try {
+      const rows = await db.query(
+        `SELECT id FROM recovery_cases WHERE status NOT IN ('resolved', 'stopped') LIMIT 50`
+      );
+      unresolvedIds = rows.map((r) => r.id);
+    } catch { /* ids are advisory */ }
     alerts.push({
       severity: 'medium',
       title: 'Recovery rate dropping',
@@ -62,7 +86,8 @@ async function getLeakageAlerts() {
       amountAtRisk: openAtRisk,
       affectedCases: total - resolved,
       mainCause: 'low_resolution_rate',
-      recommendedAction: 'Compare strategies and review guardrail-blocked actions.'
+      recommendedAction: 'Compare strategies and review guardrail-blocked actions.',
+      caseIds: unresolvedIds
     });
   }
 
@@ -75,6 +100,15 @@ async function getLeakageAlerts() {
     const top = reasons[0];
     const topShare = total > 0 ? top.n / total : 0;
     if (top.n >= 5 && topShare >= 0.4) {
+      let reasonIds = [];
+      try {
+        const rows = await db.query(
+          `SELECT rc.id FROM recovery_cases rc JOIN payments p ON rc.payment_id = p.id
+           WHERE p.failure_reason = ? LIMIT 50`,
+          [top.failure_reason]
+        );
+        reasonIds = rows.map((r) => r.id);
+      } catch { /* ids are advisory */ }
       alerts.push({
         severity: 'medium',
         title: `Failure reason concentration: ${top.failure_reason}`,
@@ -84,7 +118,8 @@ async function getLeakageAlerts() {
         mainCause: top.failure_reason,
         recommendedAction: top.failure_reason === 'insufficient_funds'
           ? 'Shift these cases to scheduled retry and reminders.'
-          : 'Route these cases to payment_link recovery.'
+          : 'Route these cases to payment_link recovery.',
+        caseIds: reasonIds
       });
     }
   }
@@ -95,6 +130,15 @@ async function getLeakageAlerts() {
     [LARGE_VALUE_THRESHOLD]
   );
   if (((large[0] || {}).n || 0) > 0) {
+    let largeIds = [];
+    try {
+      const rows = await db.query(
+        `SELECT id FROM recovery_cases
+         WHERE status IN ('open', 'in_progress') AND amount_at_risk > ? LIMIT 50`,
+        [LARGE_VALUE_THRESHOLD]
+      );
+      largeIds = rows.map((r) => r.id);
+    } catch { /* ids are advisory */ }
     alerts.push({
       severity: 'high',
       title: 'Large-value payments at risk',
@@ -102,7 +146,8 @@ async function getLeakageAlerts() {
       amountAtRisk: parseFloat(large[0].total) || 0,
       affectedCases: large[0].n,
       mainCause: 'large_value_exposure',
-      recommendedAction: 'Escalate to human review per high-value guardrail.'
+      recommendedAction: 'Escalate to human review per high-value guardrail.',
+      caseIds: largeIds
     });
   }
 

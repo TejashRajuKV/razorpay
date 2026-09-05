@@ -118,10 +118,15 @@ export const casesAPI = {
   getDecisionPreview: (caseId) => apiRequest(`/cases/${caseId}/decision-preview`),
   getRecoveryChannel: (caseId) => apiRequest(`/cases/${caseId}/recovery-channel`),
   getRecoveryMessage: (caseId, language = 'hinglish') => apiRequest(`/cases/${caseId}/recovery-message?language=${language}`),
-  updateCaseStatus: (caseId, status) => 
+  updateCaseStatus: (caseId, status) =>
     apiRequest(`/cases/${caseId}/status`, {
       method: 'PUT',
       body: JSON.stringify({ status }),
+    }),
+  submitCustomerResponse: (caseId, message) =>
+    apiRequest(`/cases/${caseId}/customer-response`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
     }),
 };
 
@@ -178,6 +183,9 @@ export const analyticsAPI = {
       method: 'POST',
       body: JSON.stringify({ limit: 20, ...payload }),
     }),
+  getWaterfall: () => apiRequest('/analytics/waterfall'),
+  getMLMetrics: () => apiRequest('/analytics/ml-metrics'),
+  getRecoverable: () => apiRequest('/analytics/recoverable'),
   getTrends: (timeRange = '7d') => {
     const periodMap = {
       '24h': 'hourly',

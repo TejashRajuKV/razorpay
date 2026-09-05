@@ -130,7 +130,7 @@ export default function SimulatorPage({
             <span>Interactive Simulator & Batch Engine</span>
           </span>
           <h1 className="sim-heading font-serif-title">
-            Stochastic Payment & Recovery Sandbox
+            Payment Failure & Recovery Sandbox
           </h1>
           <p className="sim-sub">
             Because no Razorpay production APIs are assumed, this built-in engine simulates realistic 

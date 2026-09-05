@@ -5,14 +5,17 @@ import {
   CheckCircle2, 
   Clock, 
   ShieldCheck, 
-  Play, 
-  Lock, 
+  Play,
+  Lock,
+  Zap,
   XCircle,
   TrendingUp,
   User,
   Bot,
   FileText,
-  Check
+  Check,
+  Eye,
+  MessageSquare
 } from 'lucide-react';
 import apiService from '../services/api';
 
@@ -26,6 +29,11 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
   const [error, setError] = useState(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionResult, setExecutionResult] = useState(null);
+  const [responseMessage, setResponseMessage] = useState('');
+  const [responseResult, setResponseResult] = useState(null);
+  const [isSubmittingResponse, setIsSubmittingResponse] = useState(false);
+  const [responseError, setResponseError] = useState(null);
+  const [isCheckingOverdue, setIsCheckingOverdue] = useState(false);
 
   useEffect(() => {
     const loadCaseData = async () => {
@@ -44,7 +52,16 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
           setCaseData(caseRes.data);
         }
         if (decisionRes?.success) {
-          setDecisionPreview(decisionRes.data);
+          const d = decisionRes.data || {};
+          // Backend nests the decision under `.decision` with keys
+          // action/probability/expectedRecovery — flatten so every
+          // downstream reader shows live values instead of fallbacks.
+          setDecisionPreview({
+            ...d,
+            ...(d.decision || {}),
+            recommendedAction: d.decision?.action ?? d.recommendedAction,
+            recoveryProbability: d.decision?.probability ?? d.recoveryProbability,
+          });
         }
         if (auditRes?.success) {
           setAuditTrail(Array.isArray(auditRes.data) ? auditRes.data : (auditRes.data?.logs || []));
@@ -95,6 +112,54 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
       currency: 'INR',
       maximumFractionDigits: 0
     }).format(val || 0);
+  };
+
+  const reloadCaseState = async () => {
+    const [caseRes, auditRes] = await Promise.all([
+      apiService.cases.getCaseById(caseId),
+      apiService.audit.getAuditTrail(caseId)
+    ]);
+    if (caseRes?.success) setCaseData(caseRes.data);
+    if (auditRes?.success) {
+      setAuditTrail(Array.isArray(auditRes.data) ? auditRes.data : (auditRes.data?.logs || []));
+    }
+  };
+
+  const handleSubmitResponse = async () => {
+    if (!responseMessage.trim()) {
+      setResponseError('Enter a customer message first.');
+      return;
+    }
+    setIsSubmittingResponse(true);
+    setResponseError(null);
+    setResponseResult(null);
+    try {
+      const res = await apiService.cases.submitCustomerResponse(caseId, responseMessage.trim());
+      if (res?.success) {
+        setResponseResult(res.data);
+        setResponseMessage('');
+      } else {
+        setResponseError(res?.error || 'Backend rejected the response.');
+      }
+      await reloadCaseState();
+    } catch (err) {
+      setResponseError(err?.message || 'Failed to submit customer response.');
+    } finally {
+      setIsSubmittingResponse(false);
+    }
+  };
+
+  const handleCheckOverdue = async () => {
+    setIsCheckingOverdue(true);
+    setResponseError(null);
+    try {
+      await apiService.simulator.checkOverduePromises();
+      await reloadCaseState();
+    } catch (err) {
+      setResponseError(err?.message || 'Failed to check overdue promises.');
+    } finally {
+      setIsCheckingOverdue(false);
+    }
   };
 
   const formatDate = (dateStr) => {
@@ -403,6 +468,34 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
             </div>
           </div>
 
+          {/* Multi-Step Recovery Plan (primary → fallback_1 → fallback_2) */}
+          {Array.isArray(decisionPreview?.recoveryPlan) && decisionPreview.recoveryPlan.length > 0 && (
+            <div className="alternative-actions">
+              <h4 className="alternatives-title">Recovery Plan</h4>
+              {(() => {
+                const attempted = new Set((caseData?.actions || []).map((a) => a.action_type));
+                return decisionPreview.recoveryPlan.map((step) => {
+                  const done = attempted.has(step.action);
+                  return (
+                    <div key={step.step} className="candidate-action">
+                      <div className="candidate-header">
+                        <span className="candidate-rank">#{step.step}</span>
+                        <span className="candidate-name">{String(step.action).replace(/_/g, ' ')}</span>
+                        <span className={`candidate-status ${done ? 'allowed' : ''}`}>
+                          {done ? 'ATTEMPTED' : step.step === 1 ? 'PRIMARY' : 'FALLBACK'}
+                        </span>
+                      </div>
+                      <div className="candidate-metrics">
+                        <span>{step.reason}</span>
+                        {step.wait_min > 0 && <span>wait {step.wait_min} min</span>}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          )}
+
           {/* Alternative Candidates */}
           {safeDecision.candidates && safeDecision.candidates.length > 1 && (
             <div className="alternative-actions">
@@ -426,6 +519,160 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
           )}
         </div>
       </div>
+
+      {/* Action Flow: what the agent considered, did, and what happened */}
+      {(() => {
+        const rejected = Array.isArray(safeDecision.rejected) ? safeDecision.rejected : [];
+        const executed = Array.isArray(caseData?.actions) ? [...caseData.actions].reverse() : [];
+        if (rejected.length === 0 && executed.length === 0) return null;
+        const statusOf = (a) => String(a.action_status || '').toLowerCase();
+        return (
+          <div className="flow-section">
+            <h3 className="section-title">
+              <Zap size={20} className="section-icon" />
+              <span>Action Flow — What & Why</span>
+            </h3>
+            <div className="flow-track">
+              {rejected.map((r, i) => (
+                <div key={`r-${i}`} className="flow-node" style={{ animationDelay: `${i * 90}ms` }}>
+                  <div className="flow-dot considered"><Eye size={12} /></div>
+                  <div className="flow-card">
+                    <div className="flow-title">Considered {String(r.action).replace(/_/g, ' ')}</div>
+                    <div className="flow-sub">Rejected — {r.whyNot}</div>
+                    {r.expectedRecovery != null && (
+                      <div className="flow-meta">Expected {formatINR(Number(r.expectedRecovery))}</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {executed.map((a, i) => {
+                const st = statusOf(a);
+                const tone = st === 'success' ? 'success' : (st === 'failed' || st === 'blocked') ? 'blocked' : 'live';
+                return (
+                  <div key={`e-${i}`} className="flow-node" style={{ animationDelay: `${(rejected.length + i) * 90}ms` }}>
+                    <div className={`flow-dot ${tone}`}>
+                      {st === 'success' ? <Check size={12} /> : (st === 'failed' || st === 'blocked') ? <XCircle size={12} /> : <Play size={12} />}
+                    </div>
+                    <div className="flow-card">
+                      <div className="flow-title">
+                        {String(a.action_type).replace(/_/g, ' ')} → {String(a.action_status || 'executed').toUpperCase()}
+                      </div>
+                      <div className="flow-sub">{a.result_message || 'No result recorded'}</div>
+                      <div className="flow-meta">
+                        {a.recovery_amount != null && Number(a.recovery_amount) > 0 && (
+                          <span>Recovered {formatINR(Number(a.recovery_amount))} · </span>
+                        )}
+                        <span>{formatDate(a.executed_at || a.created_at)}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Customer Response & Promise-to-Pay (backend authoritative) */}
+      {(() => {
+        const promiseInfo = caseData?.recoveryState?.customerResponse || null;
+        const showIntent = responseResult?.intent || promiseInfo?.lastIntent || null;
+        const showConfidence = responseResult?.confidence ?? promiseInfo?.lastConfidence ?? null;
+        const showPromiseState = responseResult?.promiseState || promiseInfo?.promiseState || 'NONE';
+        const showPromisedAt = responseResult?.promisedAt || promiseInfo?.promisedAt || null;
+        const showFollowUp = responseResult ? !!responseResult.followUpRequired : !!promiseInfo?.followUpRequired;
+        const showFollowUpAt = responseResult?.followUpAt || null;
+        const prettyIntent = showIntent
+          ? String(showIntent).split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+          : null;
+        const lifecycle = ['NONE', 'PROMISED', 'FULFILLED', 'MISSED', 'CANCELLED'];
+        const promiseEvents = auditTrail.filter((e) =>
+          /promise|customer_response/.test(String(e.eventType || e.type || ''))
+        ).slice(-5).reverse();
+        return (
+          <div className="response-section">
+            <h3 className="section-title">
+              <MessageSquare size={20} className="section-icon" />
+              <span>Customer Response</span>
+            </h3>
+
+            <label className="response-label" htmlFor="customer-message">Customer message</label>
+            <textarea
+              id="customer-message"
+              className="response-input"
+              rows={2}
+              placeholder='e.g. "I will pay tomorrow morning"'
+              value={responseMessage}
+              onChange={(e) => setResponseMessage(e.target.value)}
+              disabled={isSubmittingResponse}
+            />
+            <div className="response-actions">
+              <button className="btn btn-primary btn-sm" onClick={handleSubmitResponse} disabled={isSubmittingResponse}>
+                <span>{isSubmittingResponse ? 'Analyzing…' : 'Analyze response'}</span>
+              </button>
+              <button className="btn btn-secondary btn-sm" onClick={handleCheckOverdue} disabled={isCheckingOverdue}>
+                <span>{isCheckingOverdue ? 'Checking…' : 'Check overdue promises'}</span>
+              </button>
+            </div>
+            {responseError && <div className="response-error">{responseError}</div>}
+
+            {!showIntent && showPromiseState === 'NONE' ? (
+              <p className="response-empty">No customer response recorded for this case.</p>
+            ) : (
+              <div className="response-result">
+                <div className="context-row">
+                  <span className="context-label">Detected intent</span>
+                  <span className="context-value">{prettyIntent || '—'}</span>
+                </div>
+                {showConfidence != null && (
+                  <div className="context-row">
+                    <span className="context-label">Confidence</span>
+                    <span className="context-value">{Math.round(Number(showConfidence) * 100)}%</span>
+                  </div>
+                )}
+                <div className="context-row">
+                  <span className="context-label">Promise status</span>
+                  <span className="context-value">{showPromiseState}</span>
+                </div>
+                {showPromisedAt && (
+                  <div className="context-row">
+                    <span className="context-label">Promised for</span>
+                    <span className="context-value">{formatDate(showPromisedAt)}</span>
+                  </div>
+                )}
+                <div className="context-row">
+                  <span className="context-label">Follow-up</span>
+                  <span className="context-value">
+                    {showFollowUp ? 'Required' : 'Not required'}
+                    {showFollowUpAt ? ` · ${formatDate(showFollowUpAt)}` : ''}
+                  </span>
+                </div>
+
+                <div className="lifecycle-stepper" style={{ marginTop: 10 }}>
+                  {lifecycle.map((s) => (
+                    <div key={s} className="lifecycle-step-wrap">
+                      <div className={`lifecycle-dot ${s === showPromiseState ? 'done' : 'pending'}`}>
+                        <span style={{ fontSize: 9 }}>{s === showPromiseState ? '●' : s.charAt(0)}</span>
+                      </div>
+                      <span className="lifecycle-label">{s}</span>
+                    </div>
+                  ))}
+                </div>
+                {promiseEvents.length > 0 && (
+                  <div className="response-history">
+                    {promiseEvents.map((e, i) => (
+                      <div key={i} className="response-history-item">
+                        <span>{e.eventType || e.type}</span>
+                        <span className="response-history-time">{formatDate(e.timestamp)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Safety Section */}
       <div className="safety-section">
@@ -624,6 +871,45 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
           </div>
         </div>
       </div>
+
+      {/* Recovery Lifecycle Stepper (live stage data only) */}
+      {(() => {
+        const hasResponse = !!(caseData?.recoveryState?.customerResponse?.lastIntent)
+          || auditTrail.some((e) => String(e.eventType || e.type || '').includes('customer_response'));
+        const hasMessage = !!(recoveryChannel || recoveryMessage);
+        const hasDecision = !!(decisionPreview?.decision || safeCase.recommended_action);
+        const hasDiagnosis = !!(decisionPreview?.diagnosis || safeCase.diagnosis);
+        const isRecovered = String(safeCase.status || '').toLowerCase() === 'resolved'
+          || Number(safeCase.recovered_amount || safeCase.recoveredAmount || 0) > 0;
+        const stages = [
+          { key: 'failure', label: 'Failure', done: true },
+          { key: 'diagnosis', label: 'Diagnosis', done: hasDiagnosis },
+          { key: 'decision', label: 'Decision', done: hasDecision },
+          { key: 'message', label: 'Message', done: hasMessage },
+          { key: 'response', label: 'Response', done: hasResponse },
+          { key: 'payment', label: 'Payment', done: isRecovered },
+          { key: 'recovered', label: 'Recovered', done: isRecovered },
+        ];
+        return (
+          <div className="lifecycle-section">
+            <h3 className="section-title">
+              <CheckCircle2 size={20} className="section-icon" />
+              <span>Recovery Lifecycle</span>
+            </h3>
+            <div className="lifecycle-stepper">
+              {stages.map((s, i) => (
+                <div key={s.key} className="lifecycle-step-wrap">
+                  <div className={`lifecycle-dot ${s.done ? 'done' : 'pending'}`}>
+                    {s.done ? <Check size={12} /> : <span>{i + 1}</span>}
+                  </div>
+                  <span className="lifecycle-label">{s.label}</span>
+                  {i < stages.length - 1 && <div className={`lifecycle-link ${stages[i + 1].done ? 'done' : ''}`} />}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Audit Trail Section */}
       <div className="audit-section">
@@ -1521,6 +1807,270 @@ export default function CaseDetail({ caseId, onBack, onExecuteRecovery }) {
           gap: 12px;
           padding: 40px;
           color: #94A3B8;
+        }
+
+        .lifecycle-section {
+          background: #FFFFFF;
+          border: 1px solid #E8E1D6;
+          border-radius: 12px;
+          padding: 20px 24px;
+        }
+
+        .lifecycle-stepper {
+          display: flex;
+          align-items: flex-start;
+          margin-top: 12px;
+          overflow-x: auto;
+        }
+
+        .lifecycle-step-wrap {
+          display: flex;
+          align-items: center;
+          flex: 1;
+          min-width: 90px;
+        }
+
+        .lifecycle-step-wrap:last-child {
+          flex: 0;
+        }
+
+        .lifecycle-dot {
+          width: 26px;
+          height: 26px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 11px;
+          font-weight: 800;
+          flex-shrink: 0;
+        }
+
+        .lifecycle-dot.done {
+          background: #10B981;
+          color: #FFFFFF;
+        }
+
+        .lifecycle-dot.pending {
+          background: #F1F5F9;
+          color: #94A3B8;
+          border: 1px solid #E2E8F0;
+        }
+
+        .lifecycle-label {
+          font-size: 11.5px;
+          font-weight: 700;
+          color: #4E4E48;
+          margin-left: 6px;
+          white-space: nowrap;
+        }
+
+        .lifecycle-link {
+          flex: 1;
+          height: 2px;
+          background: #E2E8F0;
+          margin: 0 8px;
+          min-width: 12px;
+        }
+
+        .lifecycle-link.done {
+          background: #10B981;
+        }
+
+        /* Customer Response */
+        .response-section {
+          background: #FFFFFF;
+          border: 1px solid #E8E1D6;
+          border-radius: 12px;
+          padding: 20px 24px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .response-label {
+          font-size: 12px;
+          font-weight: 700;
+          color: #4E4E48;
+        }
+
+        .response-input {
+          width: 100%;
+          border: 1px solid #E8E1D6;
+          border-radius: 10px;
+          padding: 10px 12px;
+          font-family: inherit;
+          font-size: 13.5px;
+          background: #FFFEFA;
+          resize: vertical;
+        }
+
+        .response-actions {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+
+        .response-error {
+          font-size: 13px;
+          font-weight: 700;
+          color: #991B1B;
+          background: #FEE2E2;
+          border: 1px solid #FECACA;
+          border-radius: 8px;
+          padding: 8px 12px;
+        }
+
+        .response-empty {
+          font-size: 13px;
+          color: #7A7A72;
+        }
+
+        .response-result {
+          display: flex;
+          flex-direction: column;
+        }
+
+        .response-history {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          margin-top: 8px;
+        }
+
+        .response-history-item {
+          display: flex;
+          justify-content: space-between;
+          font-size: 12px;
+          color: #4E4E48;
+          background: #FAF7F0;
+          border: 1px solid #E8E1D6;
+          border-radius: 8px;
+          padding: 6px 10px;
+        }
+
+        .response-history-time {
+          color: #94A3B8;
+        }
+
+        /* Action Flow */
+        .flow-section {
+          background: #FFFFFF;
+          border: 1px solid #E8E1D6;
+          border-radius: 12px;
+          padding: 20px 24px;
+        }
+
+        .flow-track {
+          display: flex;
+          flex-direction: column;
+          margin-top: 12px;
+        }
+
+        .flow-node {
+          display: flex;
+          gap: 12px;
+          padding: 10px 4px 10px 2px;
+          position: relative;
+          animation: flow-rise 0.5s ease both;
+        }
+
+        .flow-node:not(:last-child)::before {
+          content: '';
+          position: absolute;
+          left: 14px;
+          top: 36px;
+          bottom: -6px;
+          width: 2px;
+          background: linear-gradient(#10B981, #E2E8F0);
+          background-size: 100% 200%;
+          animation: flow-dash 2.4s ease-in-out infinite;
+        }
+
+        .flow-dot {
+          width: 26px;
+          height: 26px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          z-index: 1;
+        }
+
+        .flow-dot.considered {
+          background: #F1F5F9;
+          color: #64748B;
+          border: 1px solid #E2E8F0;
+        }
+
+        .flow-dot.success {
+          background: #10B981;
+          color: #FFFFFF;
+        }
+
+        .flow-dot.blocked {
+          background: #FEE2E2;
+          color: #991B1B;
+          border: 1px solid #FECACA;
+        }
+
+        .flow-dot.live {
+          background: #FF6A00;
+          color: #FFFFFF;
+          animation: flow-pulse 1.8s ease-in-out infinite;
+        }
+
+        .flow-card {
+          flex: 1;
+          background: #FAF7F0;
+          border: 1px solid #E8E1D6;
+          border-radius: 10px;
+          padding: 10px 14px;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .flow-title {
+          font-size: 13px;
+          font-weight: 800;
+          color: #111110;
+          text-transform: capitalize;
+        }
+
+        .flow-sub {
+          font-size: 12.5px;
+          color: #4E4E48;
+          line-height: 1.45;
+        }
+
+        .flow-meta {
+          font-size: 11.5px;
+          color: #7A7A72;
+          font-weight: 600;
+        }
+
+        @keyframes flow-rise {
+          from { opacity: 0; transform: translateY(14px); }
+          to { opacity: 1; transform: none; }
+        }
+
+        @keyframes flow-dash {
+          0% { background-position: 0 0; }
+          50% { background-position: 0 100%; }
+          100% { background-position: 0 0; }
+        }
+
+        @keyframes flow-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(255, 106, 0, 0.45); }
+          50% { box-shadow: 0 0 0 6px rgba(255, 106, 0, 0); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .flow-node, .flow-dot.live, .flow-node:not(:last-child)::before {
+            animation: none;
+          }
         }
 
         .audit-event {
